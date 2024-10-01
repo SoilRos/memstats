@@ -8,14 +8,16 @@
 #include <iostream>
 #include <mutex>
 #include <new>
-#include <span>
 #include <tuple>
 #include <thread>
 #include <unordered_map>
 #include <utility>
-#include <version>
 
-#if __cpp_lib_stacktrace >= 202011L
+#if __has_include(<version>)
+#include <version>
+#endif
+
+#if MEMSTAT_HAVE_STACKTRACE
 #include <stacktrace>
 #endif
 
@@ -60,7 +62,12 @@ public:
         return std::size_t(-1) / sizeof(T);
     }
 
-    auto operator<=>(const MallocAllocator &) const = default;
+    friend bool operator==(const MallocAllocator&, const MallocAllocator&){
+        return true;
+    }
+    friend bool operator!=(const MallocAllocator&, const MallocAllocator&){
+        return false;
+    }
 };
 
 struct MemStatsInfo
@@ -69,7 +76,7 @@ struct MemStatsInfo
     std::size_t size = 0;
     std::chrono::high_resolution_clock::time_point time = {};
     std::thread::id thread = {};
-#if __cpp_lib_stacktrace >= 202011L
+#if MEMSTAT_HAVE_STACKTRACE
     std::basic_stacktrace<MallocAllocator<std::stacktrace_entry>> stacktrace;
 #endif
 
@@ -179,25 +186,25 @@ static constexpr std::array memstats_str_precentage_box{" ", "▁", "▂", "▃"
 static constexpr std::array memstats_str_precentage_wire{" ", "-", "~", "=", "#"};
 static constexpr std::array memstats_str_precentage_circle{" ", ".", "o", "O"};
 
-std::span<char const *const> memstats_str_hist_representation()
+auto memstats_str_hist_representation()
 {
     if (const char *ptr = std::getenv("MEMSTATS_HISTOGRAM_REPRESENTATION"))
     {
         if (std::strcmp(ptr, "box") == 0)
-            return memstats_str_precentage_box;
+            return std::make_pair(memstats_str_precentage_box.data(), memstats_str_precentage_box.size());
         if (std::strcmp(ptr, "number") == 0)
-            return memstats_str_precentage_number;
+            return std::make_pair(memstats_str_precentage_number.data(), memstats_str_precentage_number.size());
         if (std::strcmp(ptr, "punctuation") == 0)
-            return memstats_str_precentage_punctuation;
+            return std::make_pair(memstats_str_precentage_punctuation.data(), memstats_str_precentage_punctuation.size());
         if (std::strcmp(ptr, "shadow") == 0)
-            return memstats_str_precentage_shadow;
+            return std::make_pair(memstats_str_precentage_shadow.data(), memstats_str_precentage_shadow.size());
         if (std::strcmp(ptr, "wire") == 0)
-            return memstats_str_precentage_wire;
+            return std::make_pair(memstats_str_precentage_wire.data(), memstats_str_precentage_wire.size());
         if (std::strcmp(ptr, "circle") == 0)
-            return memstats_str_precentage_circle;
+            return std::make_pair(memstats_str_precentage_circle.data(), memstats_str_precentage_circle.size());
         std::cerr << "Option 'MEMSTATS_HISTOGRAM_REPRESENTATION=" << ptr << "' not known. Fallback on default 'box'\n";
     }
-    return memstats_str_precentage_box;
+    return std::make_pair(memstats_str_precentage_box.data(), memstats_str_precentage_box.size());
 }
 
 unsigned short memstats_bins()
@@ -224,7 +231,7 @@ void MemStatsInfo::record(void *ptr, std::size_t sz)
     info.size = sz;
     info.time = time;
     info.thread = std::this_thread::get_id();
-#if __cpp_lib_stacktrace >= 202011L
+#if MEMSTAT_HAVE_STACKTRACE
     info.stacktrace = info.stacktrace.current(2);
 #endif
 #if !MEMSTAT_HAVE_TBB
@@ -248,14 +255,14 @@ void print_legend()
     std::cout << "• count:  Number of total allocation requests\n";
     std::cout << "• pos:    Position of the measurment\n";
     std::cout << "\nMemStats Histogram Legend:\n\n";
-    const auto str_precentage = memstats_str_hist_representation();
+    const auto [str_precentage, str_precentage_size] = memstats_str_hist_representation();
     string buffer;
-    double per_width = 100. / str_precentage.size();
-    for (std::size_t i = 0; i != str_precentage.size(); ++i)
-      std::cout << "• \'" << str_precentage[i] << "\' -> [" << std::fixed
+    double per_width = 100. / str_precentage_size;
+    for (std::size_t i = 0; i != str_precentage_size; ++i)
+      std::cout << "• \'" << str_precentage+i << "\' -> [" << std::fixed
                 << std::setw(4) << std::setprecision(1) << i * per_width
                 << "%, " << std::setw(5) << (i + 1) * per_width << '%'
-                << (i + 1 == str_precentage.size() ? ']' : ')') << std::endl;
+                << (i + 1 == str_precentage_size ? ']' : ')') << std::endl;
 }
 
 void memstats_report(const char * report_name)
@@ -271,7 +278,7 @@ void memstats_report(const char * report_name)
     };
     Stats global_stats;
     unordered_map<std::thread::id, Stats> thread_stats;
-#if __cpp_lib_stacktrace >= 202011L
+#if MEMSTAT_HAVE_STACKTRACE
     unordered_map<std::basic_stacktrace<MallocAllocator<std::stacktrace_entry>>, Stats> stacktrace_stats;
     unordered_map<std::stacktrace_entry, Stats> stacktrace_entry_stats;
 #endif
@@ -290,7 +297,7 @@ void memstats_report(const char * report_name)
         register_stats(global_stats);
         register_stats(thread_stats[info.thread]);
 
-#if __cpp_lib_stacktrace >= 202011L
+#if MEMSTAT_HAVE_STACKTRACE
         register_stats(stacktrace_stats[info.stacktrace]);
         for (auto entry : info.stacktrace)
             register_stats(stacktrace_entry_stats[entry]);
@@ -319,7 +326,7 @@ void memstats_report(const char * report_name)
         stream << short(val / (std::pow(1000, base))) << metric_prefix[base];
         return stream.str();
     };
-    const auto str_precentage = memstats_str_hist_representation();
+    const auto [str_precentage, str_precentage_size] = memstats_str_hist_representation();
     const auto bins = memstats_bins();
     auto format_histogram = [&](const auto &stats)
     {
@@ -335,9 +342,9 @@ void memstats_report(const char * report_name)
         stream << "[";
         for (auto size : hist) {
           const std::size_t bin_entry =
-            (size * str_precentage.size()) / max_size;
+            (size * str_precentage_size) / max_size;
           // maximum value (size==max_size) will be out of range so we need to guard agains that
-          stream << str_precentage[std::min(bin_entry, str_precentage.size() - 1)];
+          stream << str_precentage[std::min(bin_entry, str_precentage_size - 1)];
         }
         stream << "]" << std::left<< std::setw(6) << bytes_to_string(stats.max_size);
         return stream.str();
@@ -356,7 +363,7 @@ void memstats_report(const char * report_name)
                   << ") | Thread " << thread << std::endl;
       }
 
-#if __cpp_lib_stacktrace >= 202011L
+#if MEMSTAT_HAVE_STACKTRACE
     for (auto [stacktrace_entry, stats] : stacktrace_entry_stats)
     {
       if (stats.size) {

@@ -13,7 +13,28 @@ install(FILES memstats.hh
 
 target_include_directories(memstats PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 
-target_compile_features(memstats PRIVATE cxx_std_23)
+file(WRITE "${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/src_stacktrace.cxx"
+[[
+#include <stacktrace>
+#include <iostream>
+#include <version>
+int main(){
+    std::cout << std::stacktrace::current();
+    return (__cpp_lib_stacktrace < 202011L);
+}]])
+
+try_compile(stacktrace ${CMAKE_BINARY_DIR} ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/src_stacktrace.cxx CXX_STANDARD 23)
+
+if (stacktrace)
+    message(STATUS "Performing Test stacktrace - Success")
+    target_compile_features(memstats PRIVATE cxx_std_23)
+    target_compile_definitions(memstats PRIVATE MEMSTAT_HAVE_STACKTRACE)
+else()
+message(STATUS "Performing Test stacktrace - Failed")
+    target_compile_features(memstats PRIVATE cxx_std_17)
+endif()
+
+
 target_compile_definitions(memstats PRIVATE $<$<TARGET_EXISTS:TBB::tbb>:MEMSTAT_HAVE_TBB>)
 set_target_properties(memstats PROPERTIES
     CXX_VISIBILITY_PRESET hidden
