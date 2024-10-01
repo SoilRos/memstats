@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.21)
 project(memstats LANGUAGES C CXX)
 
 find_package(TBB)
@@ -52,7 +52,7 @@ export(EXPORT memstats-targets
 )
 
 
-if(CMAKE_CURRENT_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+if(memstats_IS_TOP_LEVEL)
     add_executable(example_01 example_01.cc)
     target_link_libraries(example_01 PUBLIC MemStats::MemStats)
 

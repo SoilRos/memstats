@@ -27,10 +27,11 @@ _**Note**: This library only instruments the C++ operators `new` and `delete`, m
 # CMakeLists.txt
 
 # Obtain memstats
-incldue(FetchContent)
+include(FetchContent)
 FetchContent_Declare(
   memstats
-  URL      ???
+  GIT_REPOSITORY      git@github.com:SoilRos/memstats.git
+  GIT_TAG             main
 )
 FetchContent_MakeAvailable(memstats)
 
