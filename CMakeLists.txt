@@ -6,7 +6,7 @@ find_package(Threads)
 
 if(MINGW)
         add_library(memstats STATIC)
-        target_compile_otions(memstats PUBLIC -static -Wa,-mbig-obj -fvisibility=hidden -fpic)
+        target_compile_options(memstats PUBLIC -static -Wa,-mbig-obj -fvisibility=hidden -fpic)
 else()
         add_library(memstats)
 endif()
