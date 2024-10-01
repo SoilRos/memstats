@@ -51,8 +51,6 @@ jobs:
             cpp_compiler: clang++
             shell: bash
         exclude:
-          - os: windows-latest
-            toolchain: gnu
           - os: ubuntu-latest
             toolchain: msvc
           - os: macos-latest
