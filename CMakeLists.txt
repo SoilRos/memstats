@@ -31,7 +31,7 @@ if (stacktrace)
     target_compile_definitions(memstats PRIVATE MEMSTAT_HAVE_STACKTRACE)
 else()
 message(STATUS "Performing Test stacktrace - Failed")
-    target_compile_features(memstats PRIVATE cxx_std_17)
+    target_compile_features(memstats PUBLIC cxx_std_17)
 endif()
 
 
