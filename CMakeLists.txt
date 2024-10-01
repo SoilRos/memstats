@@ -9,7 +9,7 @@ if(MINGW)
 else()
         add_library(memstats)
 endif()
-target_sources(memstats memstats.cc)
+target_sources(memstats PRIVATE memstats.cc)
 target_link_libraries(memstats PRIVATE $<TARGET_NAME_IF_EXISTS:TBB::tbb> $<TARGET_NAME_IF_EXISTS:Threads::Threads>)
 
 include(GNUInstallDirs)
