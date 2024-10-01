@@ -27,6 +27,12 @@
 #include <vector>
 #endif
 
+#if __cpp_constinit >= 201907L
+#define MEMSTATS_CONSTINIT constint
+#else
+#define MEMSTATS_CONSTINIT
+#endif
+
 #include "memstats.hh"
 
 // all allocations within this library need to use malloc/free instad of new/delete
@@ -145,10 +151,10 @@ static std::recursive_mutex memstats_lock = {};
 #if MEMSTAT_HAVE_TBB
 // Non-'constinit' is problematic because its initialization cannot be done as constant-initialization
 // and a call to 'new' during dynamic-initialization in another library may try to write to this variable even before its initialized.
-/*constint*/ tbb::concurrent_vector<MemStatsInfo, MallocAllocator<MemStatsInfo>> memstats_events = {};
+/*MEMSTATS_CONSTINIT*/ tbb::concurrent_vector<MemStatsInfo, MallocAllocator<MemStatsInfo>> memstats_events = {};
 #else
 // 'constinit' is good because it will be initialized before any dynamic-initialization happens
-constinit static std::vector<MemStatsInfo, MallocAllocator<MemStatsInfo>> memstats_events = {};
+MEMSTATS_CONSTINIT static std::vector<MemStatsInfo, MallocAllocator<MemStatsInfo>> memstats_events = {};
 #endif
 
 // Zero-initialization (happens before dynamic-initialization) assigns 'false' to 'memstats_instrumentation' which is fine because no instrumentation will be done, and 'memstats_events' won't be called.
@@ -179,12 +185,12 @@ static const bool memstats_disable_instrumentation_at_exit = init_memstats_disab
  */
 
 // bin representation of percentage from 0% to 100%
-static constexpr std::array memstats_str_precentage_shadow{" ", "░", "▒", "▓", "█"};
-static constexpr std::array memstats_str_precentage_punctuation{" ", ".", ":", "!"};
-static constexpr std::array memstats_str_precentage_number{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
-static constexpr std::array memstats_str_precentage_box{" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"};
-static constexpr std::array memstats_str_precentage_wire{" ", "-", "~", "=", "#"};
-static constexpr std::array memstats_str_precentage_circle{" ", ".", "o", "O"};
+static constexpr std::array<const char*,4> memstats_str_precentage_shadow{" ", "░", "▒", "▓", "█"};
+static constexpr std::array<const char*,4> memstats_str_precentage_punctuation{" ", ".", ":", "!"};
+static constexpr std::array<const char*,10> memstats_str_precentage_number{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
+static constexpr std::array<const char*,9> memstats_str_precentage_box{" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"};
+static constexpr std::array<const char*,5> memstats_str_precentage_wire{" ", "-", "~", "=", "#"};
+static constexpr std::array<const char*,4> memstats_str_precentage_circle{" ", ".", "o", "O"};
 
 auto memstats_str_hist_representation()
 {
