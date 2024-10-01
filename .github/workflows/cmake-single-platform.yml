@@ -94,19 +94,21 @@ jobs:
       if: ${{ ! matrix.toolchain == 'mvsc' }}
       run: |
         echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
+    - run: echo "BUILD_TYPE=${{ matrix.build_type }}" >> $GITHUB_ENV
+    - run: echo "CXX_STANDARD=${{ matrix.cxx_standard }}" >> $GITHUB_ENV
     - name: Configure CMake
       run: >
         cmake -B build
-        -DCMAKE_CXX_COMPILER="${{ matrix.cpp_compiler }}"
-        -DCMAKE_C_COMPILER="${{ matrix.c_compiler }}"
-        #-DCMAKE_BUILD_TYPE="${{ matrix.build_type }}"
-        #-DCMAKE_CXX_STANDARD="${{ matrix.cxx_standard }}"
+        -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
+        -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
+        -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+        -DCMAKE_CXX_STANDARD=$CXX_STANDARD
         -S .
 
     - name: Build
-      run: cmake --build build --config ${{ matrix.build_type }}
+      run: cmake --build build --config $BUILD_TYPE
       
     - name: Run Test
       run: |
         cd build
-        ctest --output-on-failure -C ${{ matrix.build_type }}
+        ctest --output-on-failure -C $BUILD_TYPE
