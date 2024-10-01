@@ -79,7 +79,7 @@ jobs:
       with:
         msystem: UCRT64
         update: true
-        install: mingw-w64-cross-clang-toolchain mingw-w64-ucrt-x86_64-cmake make git mingw-w64-ucrt-x86_64-git-lfs dos2unix
+        install: mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-cmake make git mingw-w64-ucrt-x86_64-git-lfs dos2unix
 
 
     - name: Setup XCode
@@ -97,10 +97,10 @@ jobs:
     - name: Configure CMake
       run: >
         cmake -B build
-        -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
-        -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
-        -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-        -DCMAKE_CXX_STANDARD=${{ matrix.cxx_standard }}
+        -DCMAKE_CXX_COMPILER="${{ matrix.cpp_compiler }}"
+        -DCMAKE_C_COMPILER="${{ matrix.c_compiler }}"
+        -DCMAKE_BUILD_TYPE="${{ matrix.build_type }}"
+        -DCMAKE_CXX_STANDARD="${{ matrix.cxx_standard }}"
         -S .
 
     - name: Build
