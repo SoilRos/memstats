@@ -168,7 +168,7 @@ static const bool memstats_disable_instrumentation_at_exit = init_memstats_disab
  * std::atexit(default_report); -> read memstats_events                                         // dynamic-initialization-destruction
  * memstats_events.~vector<MemStatsInfo, MallocAllocator<MemStatsInfo>>();                      // dynamic-initialization-destruction
  * memstats_lock.~mutex();                                                                      // dynamic-initialization-destruction
- * memstats_instrumentation.~bool();                                                             // zero-initialization-destruction
+ * memstats_instrumentation.~bool();                                                            // zero-initialization-destruction
  */
 
 // bin representation of percentage from 0% to 100%
@@ -348,8 +348,8 @@ void memstats_report(const char * report_name)
     for (const auto &[thread, stats] : thread_stats)
         if (stats.size)
         {
-            std::format_to(std::back_inserter(buffer), " | {:>6}({:<5}) | Thread {}\n", bytes_to_string(stats.size), int_to_string(stats.count), thread);
-            std::cout << format_histogram(stats) << buffer;
+            std::format_to(std::back_inserter(buffer), " | {:>6}({:<5}) | Thread ", bytes_to_string(stats.size), int_to_string(stats.count));
+            std::cout << format_histogram(stats) << buffer << thread << std::endl;
             buffer.clear();
         }
 
