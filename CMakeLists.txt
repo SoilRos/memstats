@@ -6,7 +6,7 @@ find_package(Threads)
 
 if(MINGW)
         add_library(memstats STATIC)
-        target_compile_options(memstats PUBLIC -static -Wa,-mbig-obj -fvisibility=hidden -fpic)
+        target_compile_options(memstats PUBLIC -Wa,-mbig-obj -static-libgcc -static-libstdc++)
 else()
         add_library(memstats)
 endif()
@@ -37,13 +37,13 @@ if (stacktrace)
     target_compile_definitions(memstats PRIVATE MEMSTAT_HAVE_STACKTRACE)
 else()
     message(STATUS "Performing Test stacktrace - Failed")
-    target_compile_features(memstats PUBLIC cxx_std_17)
+    target_compile_features(memstats PRIVATE cxx_std_17)
 endif()
 
 
 target_compile_definitions(memstats PRIVATE $<$<TARGET_EXISTS:TBB::tbb>:MEMSTAT_HAVE_TBB>)
 set_target_properties(memstats PROPERTIES
-#    CXX_VISIBILITY_PRESET hidden
+    CXX_VISIBILITY_PRESET hidden
     EXPORT_NAME MemStats)
 
 add_library(MemStats::MemStats ALIAS memstats)
