@@ -30,7 +30,7 @@ _**Note**: This library only instruments the C++ operators `new` and `delete`, m
 include(FetchContent)
 FetchContent_Declare(
   memstats
-  GIT_REPOSITORY      git@github.com:SoilRos/memstats.git
+  GIT_REPOSITORY      https://github.com/SoilRos/memstats.git
   GIT_TAG             main
 )
 FetchContent_MakeAvailable(memstats)
