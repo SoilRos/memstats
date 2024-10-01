@@ -154,7 +154,10 @@ static std::recursive_mutex memstats_lock = {};
 /*MEMSTATS_CONSTINIT*/ tbb::concurrent_vector<MemStatsInfo, MallocAllocator<MemStatsInfo>> memstats_events = {};
 #else
 // 'constinit' is good because it will be initialized before any dynamic-initialization happens
-MEMSTATS_CONSTINIT static std::vector<MemStatsInfo, MallocAllocator<MemStatsInfo>> memstats_events = {};
+#if __cpp_lib_constexpr_vector >= 201907L
+MEMSTATS_CONSTINIT
+#endif
+static std::vector<MemStatsInfo, MallocAllocator<MemStatsInfo>> memstats_events = {};
 #endif
 
 // Zero-initialization (happens before dynamic-initialization) assigns 'false' to 'memstats_instrumentation' which is fine because no instrumentation will be done, and 'memstats_events' won't be called.
@@ -185,12 +188,12 @@ static const bool memstats_disable_instrumentation_at_exit = init_memstats_disab
  */
 
 // bin representation of percentage from 0% to 100%
-static constexpr std::array<const char*,5> memstats_str_precentage_shadow{" ", "░", "▒", "▓", "█"};
-static constexpr std::array<const char*,4> memstats_str_precentage_punctuation{" ", ".", ":", "!"};
-static constexpr std::array<const char*,10> memstats_str_precentage_number{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
-static constexpr std::array<const char*,9> memstats_str_precentage_box{" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"};
-static constexpr std::array<const char*,5> memstats_str_precentage_wire{" ", "-", "~", "=", "#"};
-static constexpr std::array<const char*,4> memstats_str_precentage_circle{" ", ".", "o", "O"};
+static const std::array<const char*,5> memstats_str_precentage_shadow{" ", "░", "▒", "▓", "█"};
+static const std::array<const char*,4> memstats_str_precentage_punctuation{" ", ".", ":", "!"};
+static const std::array<const char*,10> memstats_str_precentage_number{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
+static const std::array<const char*,9> memstats_str_precentage_box{" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"};
+static const std::array<const char*,5> memstats_str_precentage_wire{" ", "-", "~", "=", "#"};
+static const std::array<const char*,4> memstats_str_precentage_circle{" ", ".", "o", "O"};
 
 auto memstats_str_hist_representation()
 {
