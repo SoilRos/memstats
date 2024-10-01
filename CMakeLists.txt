@@ -37,7 +37,7 @@ endif()
 
 target_compile_definitions(memstats PRIVATE $<$<TARGET_EXISTS:TBB::tbb>:MEMSTAT_HAVE_TBB>)
 set_target_properties(memstats PROPERTIES
-    CXX_VISIBILITY_PRESET hidden
+#    CXX_VISIBILITY_PRESET hidden
     EXPORT_NAME MemStats)
 
 add_library(MemStats::MemStats ALIAS memstats)
