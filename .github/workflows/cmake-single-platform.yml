@@ -66,21 +66,12 @@ jobs:
 
     steps:
     - name: Setup msys2
-      if: ${{ matrix.os == 'windows-latest' && matrix.toolchain == 'gnu' }}
+      if: ${{ matrix.os == 'windows-latest' && ( matrix.toolchain == 'gnu' || matrix.toolchain == 'llvm' ) }}
       uses: msys2/setup-msys2@v2
       with:
         msystem: UCRT64
         update: true
-        install: mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake make git mingw-w64-ucrt-x86_64-git-lfs dos2unix
-
-    - name: Setup msys2
-      if: ${{ matrix.os == 'windows-latest' && matrix.toolchain == 'llvm' }}
-      uses: msys2/setup-msys2@v2
-      with:
-        msystem: UCRT64
-        update: true
-        install: mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-cmake make git mingw-w64-ucrt-x86_64-git-lfs dos2unix
-
+        install: mingw-w64-ucrt-x86_64-${{ matrix.c_compiler }} mingw-w64-ucrt-x86_64-cmake make git mingw-w64-ucrt-x86_64-git-lfs dos2unix
 
     - name: Setup XCode
       if: ${{ matrix.os == 'macos-latest' }}
@@ -94,21 +85,19 @@ jobs:
       if: ${{ ! matrix.toolchain == 'mvsc' }}
       run: |
         echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
-    - run: echo "BUILD_TYPE=${{ matrix.build_type }}" >> $GITHUB_ENV
-    - run: echo "CXX_STANDARD=${{ matrix.cxx_standard }}" >> $GITHUB_ENV
     - name: Configure CMake
       run: >
         cmake -B build
         -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
         -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
-        -DCMAKE_BUILD_TYPE=$BUILD_TYPE
-        -DCMAKE_CXX_STANDARD=$CXX_STANDARD
+        -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+        -DCMAKE_CXX_STANDARD=${{ matrix.cxx_standard }}
         -S .
 
     - name: Build
-      run: cmake --build build --config $BUILD_TYPE
+      run: cmake --build build --config ${{ matrix.build_type }}
       
     - name: Run Test
       run: |
         cd build
-        ctest --output-on-failure -C $BUILD_TYPE
+        ctest --output-on-failure -C ${{ matrix.build_type }}
