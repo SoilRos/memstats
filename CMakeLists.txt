@@ -82,6 +82,11 @@ if(memstats_IS_TOP_LEVEL)
     add_executable(example_01 example_01.cc)
     target_link_libraries(example_01 PUBLIC MemStats::MemStats)
 
+
+if(MINGW)
+        target_compile_options(example_01 PUBLIC -Wa,-mbig-obj -static-libgcc -static-libstdc++)
+else()
+
     #add_executable(example_02 example_02.cc)
     #target_link_libraries(example_02 PUBLIC MemStats::MemStats)
 
