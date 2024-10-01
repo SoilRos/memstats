@@ -14,11 +14,12 @@
 #include <unordered_map>
 #include <utility>
 #include <version>
+
 #if __cpp_lib_stacktrace >= 202011L
 #include <stacktrace>
 #endif
 
-#if HAVE_TBB
+#if MEMSTAT_HAVE_TBB
 #include <oneapi/tbb/concurrent_vector.h>
 #else
 #include <vector>
@@ -75,7 +76,7 @@ struct MemStatsInfo
     static void record(void *ptr, std::size_t sz = 0);
 };
 
-bool init_memstats_enable_instrumentation()
+bool init_memstats_instrumentation()
 {
     if (char *ptr = std::getenv("MEMSTATS_INIT_ENABLE_INSTRUMENTATION"))
     {
@@ -91,13 +92,13 @@ bool init_memstats_enable_instrumentation()
 bool init_memstats_disable_instrumentation_at_exit()
 {
     std::atexit([]
-                { MemStats::disable_instrumentation(); });
+                { memstats_disable_instrumentation(); });
     return true;
 }
 
 void default_report()
 {
-    MemStats::report("default");
+    memstats_report("default");
 }
 
 bool init_memstats_report_at_exit()
@@ -134,7 +135,7 @@ bool init_memstats_report_at_exit()
 
 static std::recursive_mutex memstats_lock = {};
 
-#if HAVE_TBB
+#if MEMSTAT_HAVE_TBB
 // Non-'constinit' is problematic because its initialization cannot be done as constant-initialization
 // and a call to 'new' during dynamic-initialization in another library may try to write to this variable even before its initialized.
 /*constint*/ tbb::concurrent_vector<MemStatsInfo, MallocAllocator<MemStatsInfo>> memstats_events = {};
@@ -143,31 +144,31 @@ static std::recursive_mutex memstats_lock = {};
 constinit static std::vector<MemStatsInfo, MallocAllocator<MemStatsInfo>> memstats_events = {};
 #endif
 
-// Zero-initialization (happens before dynamic-initialization) assigns 'false' to 'memstats_enable_instrumentation' which is fine because no instrumentation will be done, and 'memstats_events' won't be called.
-// By defining 'memstats_enable_instrumentation' after 'memstats_events' we guarantee that they are initialized on that order during dynamic-initialization.
+// Zero-initialization (happens before dynamic-initialization) assigns 'false' to 'memstats_instrumentation' which is fine because no instrumentation will be done, and 'memstats_events' won't be called.
+// By defining 'memstats_instrumentation' after 'memstats_events' we guarantee that they are initialized on that order during dynamic-initialization.
 // meaning that we cannot register memory events before 'memstats_events' is initialized.
-static thread_local bool memstats_enable_instrumentation = init_memstats_enable_instrumentation();
+static thread_local bool memstats_instrumentation = init_memstats_instrumentation();
 
 // Destruction order fiasco also hits here. If a variable destroyed during dynamic-initialization-destruction (reverse order),
 // calls on 'delete' or direct accesses to 'memstats_events' may trigger an access to an already destroyed 'memstats_events'.
 // Therefore, we make sure to make a 'report' before 'memstats_events' is destroyed.
 static const bool memstats_report_at_exit = init_memstats_report_at_exit();
 // ...and make sure to that 'delete' has a disabled instrumentation before 'memstats_events' is destroyed.
-static const bool memstats_disable_instrumentation = init_memstats_disable_instrumentation_at_exit();
+static const bool memstats_disable_instrumentation_at_exit = init_memstats_disable_instrumentation_at_exit();
 
 /** Overview of initialization/destruction order:
- * memstats_enable_instrumentation = false;                                                     // zero-initialization
+ * memstats_instrumentation = false;                                                            // zero-initialization
  * memstats_lock = {};                                                                          // dynamic-initialization
  * memstats_events = {};                                                                        // dynamic-initialization
- * memstats_enable_instrumentation = init_memstats_enable_instrumentation();                    // dynamic-initialization
+ * memstats_instrumentation = init_memstats_instrumentation();                                  // dynamic-initialization
  * memstats_report_at_exit = init_memstats_report_at_exit();                                    // dynamic-initialization
- * memstats_disable_instrumentation = init_memstats_disable_instrumentation_at_exit();          // dynamic-initialization
+ * memstats_disable_instrumentation_at_exit = init_memstats_disable_instrumentation_at_exit();  // dynamic-initialization
  * main();
- * std::atexit(MemStats::disable_instrumentation); -> memstats_enable_instrumentation = false   // dynamic-initialization-destruction
+ * std::atexit(memstats_disable_instrumentation); -> memstats_instrumentation = false           // dynamic-initialization-destruction
  * std::atexit(default_report); -> read memstats_events                                         // dynamic-initialization-destruction
  * memstats_events.~vector<MemStatsInfo, MallocAllocator<MemStatsInfo>>();                      // dynamic-initialization-destruction
  * memstats_lock.~mutex();                                                                      // dynamic-initialization-destruction
- * memstats_enable_instrumentation.~bool();                                                     // zero-initialization-destruction
+ * memstats_instrumentation.~bool();                                                             // zero-initialization-destruction
  */
 
 // bin representation of percentage from 0% to 100%
@@ -226,7 +227,7 @@ void MemStatsInfo::record(void *ptr, std::size_t sz)
 #if __cpp_lib_stacktrace >= 202011L
     info.stacktrace = info.stacktrace.current(2);
 #endif
-#if !HAVE_TBB
+#if !MEMSTAT_HAVE_TBB
     std::unique_lock lk{memstats_lock};
 #endif
     memstats_events.emplace_back(std::move(info));
@@ -255,133 +256,130 @@ void print_legend()
     buffer.clear();
 }
 
-namespace MemStats
+void memstats_report(const char * report_name)
 {
-    void report(std::string_view report_name)
+    auto lock = std::unique_lock{memstats_lock};
+    if (memstats_events.size() == 0)
+        return;
+    std::cout << "\n------------------- MemStats " << report_name << " -------------------\n";
+    struct Stats
     {
-        auto lock = std::unique_lock{memstats_lock};
-        if (memstats_events.size() == 0)
-            return;
-        std::cout << "\n------------------- MemStats " << report_name << " -------------------\n";
-        struct Stats
-        {
-            std::size_t count{0}, size{0}, max_size{0};
-            unordered_map<std::size_t, std::size_t> size_freq;
-        };
-        Stats global_stats;
-        unordered_map<std::thread::id, Stats> thread_stats;
+        std::size_t count{0}, size{0}, max_size{0};
+        unordered_map<std::size_t, std::size_t> size_freq;
+    };
+    Stats global_stats;
+    unordered_map<std::thread::id, Stats> thread_stats;
 #if __cpp_lib_stacktrace >= 202011L
-        unordered_map<std::basic_stacktrace<MallocAllocator<std::stacktrace_entry>>, Stats> stacktrace_stats;
-        unordered_map<std::stacktrace_entry, Stats> stacktrace_entry_stats;
+    unordered_map<std::basic_stacktrace<MallocAllocator<std::stacktrace_entry>>, Stats> stacktrace_stats;
+    unordered_map<std::stacktrace_entry, Stats> stacktrace_entry_stats;
 #endif
-        for (const MemStatsInfo &info : memstats_events)
+    for (const MemStatsInfo &info : memstats_events)
+    {
+        auto register_stats = [&](auto &stats)
         {
-            auto register_stats = [&](auto &stats)
-            {
-                if (info.size)
-                    ++stats.count;
-                stats.size += info.size;
-                stats.max_size = std::max(stats.max_size, info.size);
-                if (info.size)
-                    ++stats.size_freq[info.size];
-            };
+            if (info.size)
+                ++stats.count;
+            stats.size += info.size;
+            stats.max_size = std::max(stats.max_size, info.size);
+            if (info.size)
+                ++stats.size_freq[info.size];
+        };
 
-            register_stats(global_stats);
-            register_stats(thread_stats[info.thread]);
+        register_stats(global_stats);
+        register_stats(thread_stats[info.thread]);
 
 #if __cpp_lib_stacktrace >= 202011L
-            register_stats(stacktrace_stats[info.stacktrace]);
-            for (auto entry : info.stacktrace)
-                register_stats(stacktrace_entry_stats[entry]);
+        register_stats(stacktrace_stats[info.stacktrace]);
+        for (auto entry : info.stacktrace)
+            register_stats(stacktrace_entry_stats[entry]);
 #endif
-        }
-        // clean up vector
-        memstats_events.clear();
+    }
+    // clean up vector
+    memstats_events.clear();
 
-        static const std::array metric_prefix{' ', 'k', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y', 'R', 'Q'};
-        auto bytes_to_string = [&](std::size_t bytes)
-        {
-            string buffer;
-            short base = std::floor(std::log2(bytes) / 10);
-            if (base > metric_prefix.size())
-                throw std::out_of_range{"Too many bytes to use SI prefixes"};
-            std::format_to(std::back_inserter(buffer), "{}{}B", short(bytes / (std::pow(1024, base))), metric_prefix[base]);
-            return buffer;
-        };
-
-        auto int_to_string = [&](std::size_t val)
-        {
-            string buffer;
-            short base = std::floor(std::log10(val) / 3);
-            if (base > metric_prefix.size())
-                throw std::out_of_range{"Integer is too big to use SI prefixes"};
-            std::format_to(std::back_inserter(buffer), "{}{}", short(val / (std::pow(1000, base))), metric_prefix[base]);
-            return buffer;
-        };
-        const auto str_precentage = memstats_str_hist_representation();
-        const auto bins = memstats_bins();
-        auto format_histogram = [&](const auto &stats)
-        {
-            std::vector<std::size_t, MallocAllocator<std::size_t>> hist(bins, 0);
-            std::size_t max_size = 0;
-            for (const auto &[size, count] : stats.size_freq)
-            {
-                assert(size <= stats.max_size);
-                auto bin = (bins * (size - 1)) / (stats.max_size);
-                max_size = std::max(hist[bin] += count, max_size);
-            }
-            string buffer("[");
-            for (auto size : hist)
-            {
-                const std::size_t bin_entry = (size * str_precentage.size()) / max_size;
-                // maximum value (size==max_size) will be out of range so we need to guard agains that
-                buffer += str_precentage[std::min(bin_entry, str_precentage.size() - 1)];
-            }
-            std::format_to(std::back_inserter(buffer), "]{:<6}", bytes_to_string(stats.max_size));
-            return buffer;
-        };
-
+    static const std::array metric_prefix{' ', 'k', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y', 'R', 'Q'};
+    auto bytes_to_string = [&](std::size_t bytes)
+    {
         string buffer;
-        std::format_to(std::back_inserter(buffer), " | {:>6}({:<5}) | Total\n", bytes_to_string(global_stats.size), int_to_string(global_stats.count));
-        std::cout << format_histogram(global_stats) << buffer;
-        buffer.clear();
+        short base = std::floor(std::log2(bytes) / 10);
+        if (base > metric_prefix.size())
+            throw std::out_of_range{"Too many bytes to use SI prefixes"};
+        std::format_to(std::back_inserter(buffer), "{}{}B", short(bytes / (std::pow(1024, base))), metric_prefix[base]);
+        return buffer;
+    };
 
-        for (const auto &[thread, stats] : thread_stats)
-            if (stats.size)
-            {
-                std::format_to(std::back_inserter(buffer), " | {:>6}({:<5}) | Thread {}\n", bytes_to_string(stats.size), int_to_string(stats.count), thread);
-                std::cout << format_histogram(stats) << buffer;
-                buffer.clear();
-            }
+    auto int_to_string = [&](std::size_t val)
+    {
+        string buffer;
+        short base = std::floor(std::log10(val) / 3);
+        if (base > metric_prefix.size())
+            throw std::out_of_range{"Integer is too big to use SI prefixes"};
+        std::format_to(std::back_inserter(buffer), "{}{}", short(val / (std::pow(1000, base))), metric_prefix[base]);
+        return buffer;
+    };
+    const auto str_precentage = memstats_str_hist_representation();
+    const auto bins = memstats_bins();
+    auto format_histogram = [&](const auto &stats)
+    {
+        std::vector<std::size_t, MallocAllocator<std::size_t>> hist(bins, 0);
+        std::size_t max_size = 0;
+        for (const auto &[size, count] : stats.size_freq)
+        {
+            assert(size <= stats.max_size);
+            auto bin = (bins * (size - 1)) / (stats.max_size);
+            max_size = std::max(hist[bin] += count, max_size);
+        }
+        string buffer("[");
+        for (auto size : hist)
+        {
+            const std::size_t bin_entry = (size * str_precentage.size()) / max_size;
+            // maximum value (size==max_size) will be out of range so we need to guard agains that
+            buffer += str_precentage[std::min(bin_entry, str_precentage.size() - 1)];
+        }
+        std::format_to(std::back_inserter(buffer), "]{:<6}", bytes_to_string(stats.max_size));
+        return buffer;
+    };
+
+    string buffer;
+    std::format_to(std::back_inserter(buffer), " | {:>6}({:<5}) | Total\n", bytes_to_string(global_stats.size), int_to_string(global_stats.count));
+    std::cout << format_histogram(global_stats) << buffer;
+    buffer.clear();
+
+    for (const auto &[thread, stats] : thread_stats)
+        if (stats.size)
+        {
+            std::format_to(std::back_inserter(buffer), " | {:>6}({:<5}) | Thread {}\n", bytes_to_string(stats.size), int_to_string(stats.count), thread);
+            std::cout << format_histogram(stats) << buffer;
+            buffer.clear();
+        }
 
 #if __cpp_lib_stacktrace >= 202011L
-        for (auto [stacktrace_entry, stats] : stacktrace_entry_stats)
+    for (auto [stacktrace_entry, stats] : stacktrace_entry_stats)
+    {
+        if (stats.size)
         {
-            if (stats.size)
-            {
-                std::format_to(std::back_inserter(buffer), " | {:>6}({:<5}) | ", bytes_to_string(stats.size), int_to_string(stats.count));
-                std::cout << format_histogram(stats) << buffer;
-                buffer.clear();
-                std::cout << stacktrace_entry << std::endl;
-            }
+            std::format_to(std::back_inserter(buffer), " | {:>6}({:<5}) | ", bytes_to_string(stats.size), int_to_string(stats.count));
+            std::cout << format_histogram(stats) << buffer;
+            buffer.clear();
+            std::cout << stacktrace_entry << std::endl;
         }
+    }
 #endif
-        // avoid printing legend several times, so call once at exit
-        static std::once_flag legend_flag;
-        std::call_once(legend_flag, []()
-                       { std::atexit(print_legend); });
-    }
+    // avoid printing legend several times, so call once at exit
+    static std::once_flag legend_flag;
+    std::call_once(legend_flag, []()
+                    { std::atexit(print_legend); });
+}
 
-    bool enable_instrumentation()
-    {
-        return std::exchange(memstats_enable_instrumentation, true);
-    }
+bool memstats_enable_instrumentation()
+{
+    return std::exchange(memstats_instrumentation, true);
+}
 
-    bool disable_instrumentation()
-    {
-        return std::exchange(memstats_enable_instrumentation, false);
-    }
-} // namespace MemStats
+bool memstats_disable_instrumentation()
+{
+    return std::exchange(memstats_instrumentation, false);
+}
 
 // instrumentation of new
 void *operator new(std::size_t sz)
@@ -397,7 +395,7 @@ void *operator new(std::size_t sz)
         else
             throw std::bad_alloc{};
     }
-    if (memstats_enable_instrumentation)
+    if (memstats_instrumentation)
         MemStatsInfo::record(ptr, sz);
     return ptr;
 }
@@ -419,7 +417,7 @@ void *operator new(std::size_t sz, std::nothrow_t) noexcept
 void operator delete(void *ptr) noexcept
 {
     std::free(ptr);
-    if (memstats_enable_instrumentation)
+    if (memstats_instrumentation)
         MemStatsInfo::record(ptr);
 }
 

@@ -17,8 +17,8 @@ _**Note**: This library only instruments the C++ operators `new` and `delete`, m
 
 | Function                                          | Description                                                           |
 | ------------------------------------------------- | --------------------------------------------------------------------- |
-| `MemStats::report(name)`                          | Reports statistics on `new` calls since last report. Not thread-safe. |
-| `MemStats::[enable\|disable]_instrumentation()`   | Enables/disables instrumentation on the calling thread. Thread-safe.  |
+| `memstats_report(name)`                          | Reports statistics on `new` calls since last report. Not thread-safe. |
+| `memstats_[enable\|disable]_instrumentation()`   | Enables/disables instrumentation on the calling thread. Thread-safe.  |
 
 
 ## CMake
@@ -118,12 +118,12 @@ int main()
     std::mt19937 gen(rd());
     for (int rep = 1; rep != 4; ++rep) {
         // only instrument a part of the code
-        MemStats::enable_instrumentation();
+        memstats_enable_instrumentation();
         std::normal_distribution<> distrib(rep*100, 50);
         for (int i = 0; i != 10000; ++i)
             std::vector<double> v(std::abs(distrib(gen)));
-        MemStats::disable_instrumentation();
-        MemStats::report("report " + std::to_string(rep) );
+        memstats_disable_instrumentation();
+        memstats_report( ("report " + std::to_string(rep)).c_str() );
     }
     {
         // this part is not instrumented

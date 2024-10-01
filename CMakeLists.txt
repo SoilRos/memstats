@@ -14,7 +14,6 @@ install(FILES memstats.hh
 target_include_directories(memstats PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 
 target_compile_features(memstats PRIVATE cxx_std_23)
-target_compile_features(memstats INTERFACE cxx_std_11)
 target_compile_definitions(memstats PRIVATE $<$<TARGET_EXISTS:TBB::tbb>:MEMSTAT_HAVE_TBB>)
 set_target_properties(memstats PROPERTIES
     CXX_VISIBILITY_PRESET hidden
@@ -62,5 +61,6 @@ if(memstats_IS_TOP_LEVEL)
     if(TARGET Threads::Threads)
         add_executable(example_03 example_03.cc)
         target_link_libraries(example_03 PUBLIC MemStats::MemStats)
+        target_compile_features(example_03 PUBLIC cxx_std_11)
     endif()
 endif()
