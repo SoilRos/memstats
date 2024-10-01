@@ -71,7 +71,7 @@ jobs:
       with:
         msystem: UCRT64
         update: true
-        install: mingw-w64-x86_64-toolchain mingw-w64-ucrt-x86_64-cmake make git mingw-w64-ucrt-x86_64-git-lfs dos2unix
+        install: mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake make git mingw-w64-ucrt-x86_64-git-lfs dos2unix
 
     - name: Setup msys2
       if: ${{ matrix.os == 'windows-latest' && matrix.toolchain == 'llvm' }}
