@@ -339,7 +339,7 @@ void memstats_report(const char * report_name)
           // maximum value (size==max_size) will be out of range so we need to guard agains that
           stream << str_precentage[std::min(bin_entry, str_precentage.size() - 1)];
         }
-        stream << "]" << bytes_to_string(stats.max_size);
+        stream << "]" << std::left<< std::setw(6) << bytes_to_string(stats.max_size);
         return stream.str();
     };
 
@@ -360,10 +360,10 @@ void memstats_report(const char * report_name)
     for (auto [stacktrace_entry, stats] : stacktrace_entry_stats)
     {
       if (stats.size) {
-        std::cout << " | " << format_histogram(stats) " | " << std::right
+        std::cout << " | " << format_histogram(stats) << " | " << std::right
                   << std::setw(6) << bytes_to_string(stats.size) << '('
                   << std::left << std::setw(5)
-                  << int_to_string(stats.count) ") | ";
+                  << int_to_string(stats.count) << ") | ";
         std::cout << stacktrace_entry << std::endl;
       }
     }
