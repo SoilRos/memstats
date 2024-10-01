@@ -28,7 +28,7 @@
 #endif
 
 #if __cpp_constinit >= 201907L
-#define MEMSTATS_CONSTINIT constint
+#define MEMSTATS_CONSTINIT constinit
 #else
 #define MEMSTATS_CONSTINIT
 #endif
