@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <format>
+#include <iomanip>
 #include <iostream>
 #include <mutex>
 #include <new>
@@ -236,6 +236,7 @@ void MemStatsInfo::record(void *ptr, std::size_t sz)
 template <class Key, class T>
 using unordered_map = std::unordered_map<Key, T, std::hash<Key>, std::equal_to<Key>, MallocAllocator<std::pair<const Key, T>>>;
 using string = std::basic_string<char, std::char_traits<char>, MallocAllocator<char>>;
+using stringstream = std::basic_stringstream<char, std::char_traits<char>, MallocAllocator<char>>;
 
 void print_legend()
 {
@@ -251,9 +252,10 @@ void print_legend()
     string buffer;
     double per_width = 100. / str_precentage.size();
     for (std::size_t i = 0; i != str_precentage.size(); ++i)
-        std::format_to(std::back_inserter(buffer), "• \'{}\' -> [{:>4.1F}%, {:>5.1F}%{}\n", str_precentage[i], i * per_width, (i + 1) * per_width, i + 1 == str_precentage.size() ? ']' : ')');
-    std::cout << buffer;
-    buffer.clear();
+      std::cout << "• \'" << str_precentage[i] << "\' -> [" << std::fixed
+                << std::setw(4) << std::setprecision(1) << i * per_width
+                << "%, " << std::setw(5) << (i + 1) * per_width << '%'
+                << (i + 1 == str_precentage.size() ? ']' : ')') << std::endl;
 }
 
 void memstats_report(const char * report_name)
@@ -300,22 +302,22 @@ void memstats_report(const char * report_name)
     static const std::array metric_prefix{' ', 'k', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y', 'R', 'Q'};
     auto bytes_to_string = [&](std::size_t bytes)
     {
-        string buffer;
+        stringstream stream;
         short base = std::floor(std::log2(bytes) / 10);
         if (base > metric_prefix.size())
             throw std::out_of_range{"Too many bytes to use SI prefixes"};
-        std::format_to(std::back_inserter(buffer), "{}{}B", short(bytes / (std::pow(1024, base))), metric_prefix[base]);
-        return buffer;
+        stream << short(bytes / (std::pow(1024, base))) << metric_prefix[base] << 'B';
+        return stream.str();
     };
 
     auto int_to_string = [&](std::size_t val)
     {
-        string buffer;
+        stringstream stream;
         short base = std::floor(std::log10(val) / 3);
         if (base > metric_prefix.size())
             throw std::out_of_range{"Integer is too big to use SI prefixes"};
-        std::format_to(std::back_inserter(buffer), "{}{}", short(val / (std::pow(1000, base))), metric_prefix[base]);
-        return buffer;
+        stream << short(val / (std::pow(1000, base))) << metric_prefix[base];
+        return stream.str();
     };
     const auto str_precentage = memstats_str_hist_representation();
     const auto bins = memstats_bins();
@@ -329,40 +331,41 @@ void memstats_report(const char * report_name)
             auto bin = (bins * (size - 1)) / (stats.max_size);
             max_size = std::max(hist[bin] += count, max_size);
         }
-        string buffer("[");
-        for (auto size : hist)
-        {
-            const std::size_t bin_entry = (size * str_precentage.size()) / max_size;
-            // maximum value (size==max_size) will be out of range so we need to guard agains that
-            buffer += str_precentage[std::min(bin_entry, str_precentage.size() - 1)];
+        stringstream stream;
+        stream << "[";
+        for (auto size : hist) {
+          const std::size_t bin_entry =
+            (size * str_precentage.size()) / max_size;
+          // maximum value (size==max_size) will be out of range so we need to guard agains that
+          stream << str_precentage[std::min(bin_entry, str_precentage.size() - 1)];
         }
-        std::format_to(std::back_inserter(buffer), "]{:<6}", bytes_to_string(stats.max_size));
-        return buffer;
+        stream << "]" << bytes_to_string(stats.max_size);
+        return stream.str();
     };
 
-    string buffer;
-    std::format_to(std::back_inserter(buffer), " | {:>6}({:<5}) | Total\n", bytes_to_string(global_stats.size), int_to_string(global_stats.count));
-    std::cout << format_histogram(global_stats) << buffer;
-    buffer.clear();
+    std::cout << " | " << format_histogram(global_stats) << " | " << std::right
+              << std::setw(6) << bytes_to_string(global_stats.size) << '('
+              << std::left << std::setw(5) << int_to_string(global_stats.count)
+              << ") | Total\n";
 
     for (const auto &[thread, stats] : thread_stats)
-        if (stats.size)
-        {
-            std::format_to(std::back_inserter(buffer), " | {:>6}({:<5}) | Thread ", bytes_to_string(stats.size), int_to_string(stats.count));
-            std::cout << format_histogram(stats) << buffer << thread << std::endl;
-            buffer.clear();
-        }
+      if (stats.size) {
+        std::cout << " | " << format_histogram(stats) << " | " << std::right
+                  << std::setw(6) << bytes_to_string(stats.size) << '('
+                  << std::left << std::setw(5) << int_to_string(stats.count)
+                  << ") | Thread " << thread << std::endl;
+      }
 
 #if __cpp_lib_stacktrace >= 202011L
     for (auto [stacktrace_entry, stats] : stacktrace_entry_stats)
     {
-        if (stats.size)
-        {
-            std::format_to(std::back_inserter(buffer), " | {:>6}({:<5}) | ", bytes_to_string(stats.size), int_to_string(stats.count));
-            std::cout << format_histogram(stats) << buffer;
-            buffer.clear();
-            std::cout << stacktrace_entry << std::endl;
-        }
+      if (stats.size) {
+        std::cout << " | " << format_histogram(stats) " | " << std::right
+                  << std::setw(6) << bytes_to_string(stats.size) << '('
+                  << std::left << std::setw(5)
+                  << int_to_string(stats.count) ") | ";
+        std::cout << stacktrace_entry << std::endl;
+      }
     }
 #endif
     // avoid printing legend several times, so call once at exit
