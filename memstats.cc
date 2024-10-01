@@ -185,7 +185,7 @@ static const bool memstats_disable_instrumentation_at_exit = init_memstats_disab
  */
 
 // bin representation of percentage from 0% to 100%
-static constexpr std::array<const char*,4> memstats_str_precentage_shadow{" ", "░", "▒", "▓", "█"};
+static constexpr std::array<const char*,5> memstats_str_precentage_shadow{" ", "░", "▒", "▓", "█"};
 static constexpr std::array<const char*,4> memstats_str_precentage_punctuation{" ", ".", ":", "!"};
 static constexpr std::array<const char*,10> memstats_str_precentage_number{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
 static constexpr std::array<const char*,9> memstats_str_precentage_box{" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"};
