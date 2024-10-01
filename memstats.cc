@@ -255,14 +255,14 @@ void print_legend()
     std::cout << "• count:  Number of total allocation requests\n";
     std::cout << "• pos:    Position of the measurment\n";
     std::cout << "\nMemStats Histogram Legend:\n\n";
-    const auto [str_precentage, str_precentage_size] = memstats_str_hist_representation();
+    const auto str_precentage = memstats_str_hist_representation();
     string buffer;
-    double per_width = 100. / str_precentage_size;
-    for (std::size_t i = 0; i != str_precentage_size; ++i)
-      std::cout << "• \'" << str_precentage+i << "\' -> [" << std::fixed
+    double per_width = 100. / str_precentage.second;
+    for (std::size_t i = 0; i != str_precentage.second; ++i)
+      std::cout << "• \'" << str_precentage.first+i << "\' -> [" << std::fixed
                 << std::setw(4) << std::setprecision(1) << i * per_width
                 << "%, " << std::setw(5) << (i + 1) * per_width << '%'
-                << (i + 1 == str_precentage_size ? ']' : ')') << std::endl;
+                << (i + 1 == str_precentage.second ? ']' : ')') << std::endl;
 }
 
 void memstats_report(const char * report_name)
@@ -326,7 +326,7 @@ void memstats_report(const char * report_name)
         stream << short(val / (std::pow(1000, base))) << metric_prefix[base];
         return stream.str();
     };
-    const auto [str_precentage, str_precentage_size] = memstats_str_hist_representation();
+    const auto str_precentage = memstats_str_hist_representation();
     const auto bins = memstats_bins();
     auto format_histogram = [&](const auto &stats)
     {
@@ -342,9 +342,9 @@ void memstats_report(const char * report_name)
         stream << "[";
         for (auto size : hist) {
           const std::size_t bin_entry =
-            (size * str_precentage_size) / max_size;
+            (size * str_precentage.second) / max_size;
           // maximum value (size==max_size) will be out of range so we need to guard agains that
-          stream << str_precentage[std::min(bin_entry, str_precentage_size - 1)];
+          stream << str_precentage.first[std::min(bin_entry, str_precentage.second - 1)];
         }
         stream << "]" << std::left<< std::setw(6) << bytes_to_string(stats.max_size);
         return stream.str();
