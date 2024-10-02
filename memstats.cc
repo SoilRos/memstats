@@ -436,9 +436,9 @@ void *operator new(std::size_t sz, std::nothrow_t) noexcept
 // instrumentation of delete
 void operator delete(void *ptr) noexcept
 {
-    std::free(ptr);
     if (memstats_instrumentation)
         MemStatsInfo::record(ptr);
+    std::free(ptr);
 }
 
 // instrumentation of delete
