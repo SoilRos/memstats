@@ -139,7 +139,6 @@ MEMSTATS_CONSTINIT static std::atomic<bool> memstats_instrumentation_global{fals
 #else
 #error "MemStats needs a conforming C++ standard library where 'std::atomic<bool>' can be const-initialized, i.e. its constructor is 'constexpr'!"
 #endif
-// TODO: How about destruction? In case of a detached thread, can another thread outlive this value and access it after its destruction?
 
 bool init_memstats_instrumentation_guard()
 {
@@ -412,7 +411,7 @@ bool memstats_disable_instrumentation()
 
 bool memstats_do_instrument()
 {
-    return memstats_instrumentation_global.load(std::memory_order_acquire) and memstats_instrumentation_thread;
+    return memstats_instrumentation_thread and memstats_instrumentation_global.load(std::memory_order_acquire);
 }
 
 // instrumentation of new
