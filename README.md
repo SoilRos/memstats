@@ -42,6 +42,21 @@ add_executable(example_01 example_01.cc)
 target_link_libraries(example_01 PUBLIC MemStats::MemStats)
 ```
 
+## Motivation
+
+In a world of increasing abstractions, it's increasibly hard to reason about what calls of our program make have expensive logic or not. One of such expensive calls are new allocations because they may end up on system calls or have internal syncronization mechanisims.
+This instrumentation helps you find out whether your program does such calls within your hot path, and makes a report at the end of the program to help you find out such sources of (maybe unexpected) expensive calls.
+
+```c++
+#include <memstats.hh>
+
+void my_fast_function() {
+  memstats_enable_instrumentation();
+  /* hot path, supposedly with now new allocations */
+  memstats_disable_instrumentation();
+}
+```
+
 ## Example
 
 For any program linked against the memestats library, any call to `new` and `delete` is instrumented, for example:
