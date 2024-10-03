@@ -133,6 +133,14 @@ static std::vector<MemStatsInfo, MallocAllocator<MemStatsInfo>> memstats_events 
 // Zero- and dynamic-initialization of a thread-local variable does not necessarily happen on any order related to the global ones
 static thread_local bool memstats_instrumentation_thread = init_memstats_instrumentation_thread();
 
+// guard thread-local variable to instrument further delets at exit
+bool init_memstats_instrumentation_thread_guard()
+{
+    std::atexit([]{ memstats_instrumentation_thread = false; });
+    return true;
+}
+const static thread_local bool memstats_instrumentation_thread_guard = init_memstats_instrumentation_thread_guard();
+
 // We need to make absolutely sure this is constinit so that 'memstats_instrumentation_global' is const-initialized,
 // otherwise threads will try to syncronize with an uninitialized variable
 #if MEMSTAT_ATOMIC_CONSTEXPR
@@ -154,7 +162,7 @@ bool init_memstats_instrumentation_guard()
         else
             std::cerr << "Option 'MEMSTATS_ENABLE_INSTRUMENTATION=" << ptr << "' not known. Fallback on default 'false'\n";
     }
-    memstats_instrumentation_global.store(instrument, std::memory_order_acquire);
+    memstats_instrumentation_global.store(instrument, std::memory_order_release);
     return instrument;
 }
 
