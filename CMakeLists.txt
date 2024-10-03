@@ -35,6 +35,22 @@ else()
     target_compile_features(memstats PRIVATE cxx_std_17)
 endif()
 
+file(WRITE "${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/src_atomic_constexpr.cxx"
+[[
+#include <atomic>
+constexpr static std::atomic<bool> atomic_flag = {};
+int main(){
+    return 0;}
+]])
+
+try_compile(atomic_constexpr ${CMAKE_BINARY_DIR} ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/src_atomic_constexpr.cxx CXX_STANDARD 11)
+
+if(atomic_constexpr)
+    message(STATUS "Performing Test atomic_constexpr - Success")
+    target_compile_definitions(memstats PRIVATE MEMSTAT_ATOMIC_CONSTEXPR)
+else()
+    message(STATUS "Performing Test atomic_constexpr - Failed")
+endif()
 
 target_compile_definitions(memstats PRIVATE $<$<TARGET_EXISTS:TBB::tbb>:MEMSTAT_HAVE_TBB>)
 set_target_properties(memstats PROPERTIES
