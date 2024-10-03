@@ -10,6 +10,7 @@
 #include <iostream>
 #include <mutex>
 #include <new>
+#include <sstream>
 #include <tuple>
 #include <thread>
 #include <unordered_map>
@@ -213,7 +214,7 @@ static const std::array<const char*,5> memstats_str_precentage_wire{" ", "-", "~
 static const std::array<const char*,9> memstats_str_precentage_box{" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"};
 static const std::array<const char*,10> memstats_str_precentage_number{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
 
-auto memstats_str_hist_representation()
+std::pair<char const * const *, std::size_t> memstats_str_hist_representation()
 {
     if (const char *ptr = std::getenv("MEMSTATS_HISTOGRAM_REPRESENTATION"))
     {
@@ -311,7 +312,7 @@ void memstats_report(const char * report_name)
 #endif
     for (const MemStatsInfo &info : memstats_events)
     {
-        auto register_stats = [&](auto &stats)
+        auto register_stats = [&](Stats &stats)
         {
             if (info.size)
                 ++stats.count;
@@ -355,7 +356,7 @@ void memstats_report(const char * report_name)
     };
     const auto str_precentage = memstats_str_hist_representation();
     const auto bins = memstats_bins();
-    auto format_histogram = [&](const auto &stats)
+    auto format_histogram = [&](const Stats &stats)
     {
         std::vector<std::size_t, MallocAllocator<std::size_t>> hist(bins, 0);
         std::size_t max_size = 0;
@@ -409,14 +410,22 @@ void memstats_report(const char * report_name)
                     { std::atexit(print_legend); });
 }
 
+template<class T, class U = T>
+T exchange(T& obj, U&& new_value)
+{
+    T old_value = std::move(obj);
+    obj = std::forward<U>(new_value);
+    return old_value;
+}
+
 bool memstats_enable_thread_instrumentation()
 {
-    return std::exchange(memstats_instrumentation_thread, true);
+    return exchange(memstats_instrumentation_thread, true);
 }
 
 bool memstats_disable_thread_instrumentation()
 {
-    return std::exchange(memstats_instrumentation_thread, false);
+    return exchange(memstats_instrumentation_thread, false);
 }
 
 bool memstats_do_instrument()
