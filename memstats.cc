@@ -1,4 +1,5 @@
 #include <array>
+#include <atomic>
 #include <cassert>
 #include <chrono>
 #include <cmath>
@@ -90,7 +91,7 @@ struct MemStatsInfo
     static void record(void *ptr, std::size_t sz = 0);
 };
 
-bool init_memstats_instrumentation()
+bool init_memstats_instrumentation_thread()
 {
     if (char *ptr = std::getenv("MEMSTATS_INIT_ENABLE_INSTRUMENTATION"))
     {
@@ -101,35 +102,6 @@ bool init_memstats_instrumentation()
         std::cerr << "Option 'MEMSTATS_INIT_ENABLE_INSTRUMENTATION=" << ptr << "' not known. Fallback on default 'false'\n";
     }
     return false;
-}
-
-bool init_memstats_instrumentation_guard()
-{
-    // This is just a run-time magic number that disables correct order initialization,
-    // this way we make sure that the compiler does not const-initialize our variable
-    if (char *ptr = std::getenv("MEMSTATS_DISABLE_INIT_GUARD"); ptr and std::strcmp(ptr, "0xDEADBEEF") == 0)
-        return false;
-    return true;
-}
-
-bool init_memstats_report_at_exit()
-{
-    static std::once_flag report_flag;
-    if (char *ptr = std::getenv("MEMSTATS_REPORT_AT_EXIT"))
-    {
-        if (std::strcmp(ptr, "true") == 0 or std::strcmp(ptr, "1") == 0)
-        {
-            std::call_once(report_flag, []()
-                           { std::atexit( []{ memstats_report("default"); }); });
-            return true;
-        }
-        if (std::strcmp(ptr, "false") == 0 or std::strcmp(ptr, "0") == 0)
-            return false;
-        std::cerr << "Option 'MEMSTATS_REPORT_AT_EXIT=" << ptr << "' not known. Fallback on default 'true'\n";
-    }
-    std::call_once(report_flag, []()
-                   { std::atexit( []{ memstats_report("default"); }); });
-    return true;
 }
 
 /** NOTE: initialization order fiasco on the sight!
@@ -159,28 +131,70 @@ static std::vector<MemStatsInfo, MallocAllocator<MemStatsInfo>> memstats_events 
 #endif
 
 // Zero- and dynamic-initialization of a thread-local variable does not necessarily happen on any order related to the global ones
-static thread_local bool memstats_instrumentation = init_memstats_instrumentation();
+static thread_local bool memstats_instrumentation_thread = init_memstats_instrumentation_thread();
 
-// Zero-initialization (happens before dynamic-initialization) assigns 'false' to 'memstats_instrumentation_guard' which is fine because no instrumentation will be done, and 'memstats_events' won't be called.
-// By defining 'memstats_instrumentation_guard' after 'memstats_events' we guarantee that they are initialized on that order during dynamic-initialization.
+// We need to make absolutely sure this is constinit so that 'memstats_instrumentation_global' is const-initialized,
+// otherwise threads will try to syncronize with an uninitialized variable
+#if MEMSTAT_ATOMIC_CONSTEXPR
+MEMSTATS_CONSTINIT static std::atomic<bool> memstats_instrumentation_global = false;
+#else
+#error "MemStats needs a conforming C++ standard library where 'std::atomic<bool>' can be const-initialized, i.e. its constructor is 'constexpr'!"
+#endif
+// TODO: How about destruction? In case of a detached thread, can another thread outlive this value and access it after its destruction?
+
+bool init_memstats_instrumentation_guard()
+{
+    // This is just a run-time magic number that disables correct order initialization,
+    // this way we make sure that the compiler does not const-initialize our variable
+    if (char *ptr = std::getenv("MEMSTATS_DISABLE_INIT_GUARD"); ptr and std::strcmp(ptr, "0xDEADBEEF") == 0)
+        return false;
+    memstats_instrumentation_global.store(true, std::memory_order_acquire);
+    return true;
+}
+
+// Const-initialization (happens before dynamic-initialization) assigns 'false' to 'memstats_instrumentation_global' which is fine because no instrumentation will be done, and 'memstats_events' won't be called.
+// By defining 'memstats_instrumentation_global' after 'memstats_events' we guarantee that they are initialized on that order during dynamic-initialization.
 // meaning that we cannot register memory events before 'memstats_events' is initialized.
 // Note that we do not want this variable to be const-initialized to 'true' before dynamic-initialization, so we make sure this gets
 // dynamic-initialized in the correct order by delaying its initialization by a non-constexpr function.
 static bool memstats_instrumentation_guard = init_memstats_instrumentation_guard();
 
+bool init_memstats_at_exit()
+{
+    static std::once_flag report_flag;
+    std::call_once(report_flag,
+        []{ std::atexit([]{
+            memstats_instrumentation_global.store(false, std::memory_order_release);
+            bool do_report_at_exit = true;
+            if (char *ptr = std::getenv("MEMSTATS_REPORT_AT_EXIT"))
+            {
+                if (std::strcmp(ptr, "true") == 0 or std::strcmp(ptr, "1") == 0)
+                    do_report_at_exit =  true;
+                else if (std::strcmp(ptr, "false") == 0 or std::strcmp(ptr, "0") == 0)
+                    do_report_at_exit =  false;
+                else
+                    std::cerr << "Option 'MEMSTATS_REPORT_AT_EXIT=" << ptr << "' not known. Fallback on default 'true'\n";
+            }
+            if (do_report_at_exit)
+                memstats_report("default");
+        });
+    });
+    return true;
+}
+
 // Destruction order fiasco also hits here. If a variable destroyed during dynamic-initialization-destruction (reverse order),
 // calls on 'delete' or direct accesses to 'memstats_events' may trigger an access to an already destroyed 'memstats_events'.
 // Therefore, we make sure to make a 'report' before 'memstats_events' is destroyed.
-static const bool memstats_report_at_exit = init_memstats_report_at_exit();
+static const bool memstats_at_exit_guard = init_memstats_at_exit();
 
 /** Overview of initialization/destruction order:
- * memstats_instrumentation_guard = false;                                                      // zero-initialization
+ * memstats_instrumentation_global = false;                                                     // const-initialization
  * memstats_lock = {};                                                                          // dynamic-initialization
  * memstats_events = {};                                                                        // dynamic-initialization
- * memstats_instrumentation_guard = init_memstats_instrumentation_guard();                      // dynamic-initialization
- * memstats_report_at_exit = init_memstats_report_at_exit();                                    // dynamic-initialization
+ * init_memstats_instrumentation_guard(); -> memstats_instrumentation_global = true;            // dynamic-initialization
+ * memstats_at_exit_guard = init_memstats_at_exit();                                    // dynamic-initialization
  * main();
- * memstats_instrumentation_guard.~bool();                                                      // dynamic-initialization-destruction
+ * memstats_instrumentation_global = false;
  * std::atexit(default_report); -> read memstats_events                                         // dynamic-initialization-destruction
  * memstats_events.~vector<MemStatsInfo, MallocAllocator<MemStatsInfo>>();                      // dynamic-initialization-destruction
  * memstats_lock.~mutex();                                                                      // dynamic-initialization-destruction
@@ -391,17 +405,17 @@ void memstats_report(const char * report_name)
 
 bool memstats_enable_instrumentation()
 {
-    return std::exchange(memstats_instrumentation, true);
+    return std::exchange(memstats_instrumentation_thread, true);
 }
 
 bool memstats_disable_instrumentation()
 {
-    return std::exchange(memstats_instrumentation, false);
+    return std::exchange(memstats_instrumentation_thread, false);
 }
 
 bool memstats_do_instrument()
 {
-    return memstats_instrumentation_guard and memstats_instrumentation;
+    return memstats_instrumentation_global.load(std::memory_order_acquire) and memstats_instrumentation_thread;
 }
 
 // instrumentation of new
