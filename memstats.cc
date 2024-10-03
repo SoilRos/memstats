@@ -144,10 +144,7 @@ MEMSTATS_CONSTINIT static std::atomic<bool> memstats_instrumentation_global = fa
 
 bool init_memstats_instrumentation_guard()
 {
-    // This is just a run-time magic number that disables correct order initialization,
-    // this way we make sure that the compiler does not const-initialize our variable
-    if (char *ptr = std::getenv("MEMSTATS_DISABLE_INIT_GUARD"); ptr and std::strcmp(ptr, "0xDEADBEEF") == 0)
-        return false;
+    // Note this variable is const-initialized to false. Here we change it to true and syncronize other threads during dynamic initialization 
     memstats_instrumentation_global.store(true, std::memory_order_acquire);
     return true;
 }
