@@ -4,21 +4,28 @@ Simple program that instruments the C++ operators `new` and `delete`. By the end
 
 _**Note**: This library only instruments the C++ operators `new` and `delete`, meaning that any call made to `malloc`/`calloc` et al. will not be seen by this library._
 
+## Features
+
+* Thread Safe
+* Low overhead when disabled
+* Portable: Compatible with GCC, Clang, and MVSC with C++11 support
+
 ## Environmental options
 
 | Key                                   | Description                                              | Options                                                     | Default   |
 | ------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------- | --------- |
-| `MEMSTATS_INIT_ENABLE_INSTRUMENTATION`| Initial value of instrumentation enable/disable function | `true`, `1`, `false`, `0`                                  | `false`   |
-| `MEMSTATS_REPORT_AT_EXIT`             | Whether to report at the exit of the program             | `true`, `1`, `false`, `0`                                  | `true`    |
+| `MEMSTATS_ENABLE_INSTRUMENTATION`     | Enable instrumentation                                   | `true`, `1`, `false`, `0`                                   | `false`   |
+| `MEMSTATS_THREAD_INSTRUMENTATION_INIT`| Initial value of thread-local instrumentation function   | `true`, `1`, `false`, `0`                                   | `false`   |
+| `MEMSTATS_REPORT_AT_EXIT`             | Whether to report at the exit of the program             | `true`, `1`, `false`, `0`                                   | `true`    |
 | `MEMSTATS_HISTOGRAM_REPRESENTATION`   | Representation type to use on histograms                 | `box`, `shadow`, `punctuation`, `number`, `circle`, `wire`  | `box`     |
 | `MEMSTATS_BINS`                       | Number of bins to draw on histograms                     | `<integer>`                                                 | `15`      |
 
 ## API
 
-| Function                                          | Description                                                           |
-| ------------------------------------------------- | --------------------------------------------------------------------- |
-| `memstats_report(name)`                          | Reports statistics on `new` calls since last report. Not thread-safe. |
-| `memstats_[enable\|disable]_instrumentation()`   | Enables/disables instrumentation on the calling thread. Thread-safe.  |
+| Function                                                | Description                                                           |
+| ------------------------------------------------------- | --------------------------------------------------------------------- |
+| `memstats_report(name)`                                 | Reports statistics on `new` calls since last report. Not thread-safe. |
+| `memstats_[enable\|disable]_thread_instrumentation()`   | Enables/disables instrumentation on the calling thread. Thread-safe.  |
 
 
 ## CMake
@@ -51,9 +58,9 @@ This instrumentation helps you find out whether your program does such calls wit
 #include <memstats.hh>
 
 void my_fast_function() {
-  memstats_enable_instrumentation();
+  memstats_enable_thread_instrumentation();
   /* hot path, supposedly with no new allocations */
-  memstats_disable_instrumentation();
+  memstats_disable_thread_instrumentation();
 }
 ```
 
@@ -87,7 +94,7 @@ int main()
 When the executable is run and instrumentation initialization is enabled, the program will print a report on memory used by `new`.
 
 ```log
-MEMSTATS_INIT_ENABLE_INSTRUMENTATION=true MEMSTATS_BINS=75 ./example_01
+MEMSTATS_ENABLE_INSTRUMENTATION=true MEMSTATS_THREAD_INSTRUMENTATION_INIT=true MEMSTATS_BINS=75 ./example_01
 
 ------------------- MemStats default -------------------
 [          ▁▁▁▂▂▃▃▃▃▃▅▅▅▆▅▄▆▆▅▅▄▅▄▃▄▃▃▃▃▂▃▃▃▃▄▄▅▅▇▇▆▇█▇█▆▆▆▄▄▃▂▂▁▁▁         ]4kB    |   45MB(19k  ) | Total
@@ -133,11 +140,11 @@ int main()
     std::mt19937 gen(rd());
     for (int rep = 1; rep != 4; ++rep) {
         // only instrument a part of the code
-        memstats_enable_instrumentation();
+        memstats_enable_thread_instrumentation();
         std::normal_distribution<> distrib(rep*100, 50);
         for (int i = 0; i != 10000; ++i)
             std::vector<double> v(std::abs(distrib(gen)));
-        memstats_disable_instrumentation();
+        memstats_disable_thread_instrumentation();
         memstats_report( ("report " + std::to_string(rep)).c_str() );
     }
     {
@@ -152,7 +159,7 @@ int main()
 Similarly, this will instrument and report on your code, but only for specific parts of it:
 
 ```log
-MEMSTATS_BINS=50 MEMSTATS_HISTOGRAM_REPRESENTATION=shadow ./example_02
+MEMSTATS_ENABLE_INSTRUMENTATION=true MEMSTATS_BINS=50 MEMSTATS_HISTOGRAM_REPRESENTATION=shadow ./example_02
 
 ------------------- MemStats report 1 -------------------
 [░░░░░░▒▒▒▓▒█▓█▓█████████▓▓▒▒▒▒▒░░░                ]2kB    |    7MB(9k   ) | Total

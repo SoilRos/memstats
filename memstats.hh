@@ -17,13 +17,13 @@ void memstats_report(const char * report_name = "");
  * @details Thread-local. Do not call during static- or dynamic-initialization phase.
  * @return Whether instrumentation was enabled before to this call
  */
-bool memstats_enable_instrumentation();
+bool memstats_enable_thread_instrumentation();
 
 /** @brief Disable instrumentation of 'new' and 'delete' for the calling thread.
  * @details Thread-local. Do not call during static- or dynamic-initialization phase.
  * @return Whether instrumentation was enabled before to this call
  */
-bool memstats_disable_instrumentation();
+bool memstats_disable_thread_instrumentation();
 
 #ifdef __cplusplus
 }

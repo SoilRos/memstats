@@ -92,13 +92,13 @@ struct MemStatsInfo
 
 bool init_memstats_instrumentation_thread()
 {
-    if (char *ptr = std::getenv("MEMSTATS_INIT_ENABLE_INSTRUMENTATION"))
+    if (char *ptr = std::getenv("MEMSTATS_THREAD_INSTRUMENTATION_INIT"))
     {
         if (std::strcmp(ptr, "true") == 0 or std::strcmp(ptr, "1") == 0)
             return true;
         if (std::strcmp(ptr, "false") == 0 or std::strcmp(ptr, "0") == 0)
             return false;
-        std::cerr << "Option 'MEMSTATS_INIT_ENABLE_INSTRUMENTATION=" << ptr << "' not known. Fallback on default 'false'\n";
+        std::cerr << "Option 'MEMSTATS_THREAD_INSTRUMENTATION_INIT=" << ptr << "' not known. Fallback on default 'false'\n";
     }
     return false;
 }
@@ -142,9 +142,19 @@ MEMSTATS_CONSTINIT static std::atomic<bool> memstats_instrumentation_global{fals
 
 bool init_memstats_instrumentation_guard()
 {
+    bool instrument = false;
     // Note this variable is const-initialized to false. Here we change it to true and syncronize other threads during dynamic initialization
-    memstats_instrumentation_global.store(true, std::memory_order_acquire);
-    return true;
+    if (char *ptr = std::getenv("MEMSTATS_ENABLE_INSTRUMENTATION"))
+    {
+        if (std::strcmp(ptr, "true") == 0 or std::strcmp(ptr, "1") == 0)
+            instrument = true;
+        else if (std::strcmp(ptr, "false") == 0 or std::strcmp(ptr, "0") == 0)
+            instrument = false;
+        else
+            std::cerr << "Option 'MEMSTATS_ENABLE_INSTRUMENTATION=" << ptr << "' not known. Fallback on default 'false'\n";
+    }
+    memstats_instrumentation_global.store(instrument, std::memory_order_acquire);
+    return instrument;
 }
 
 // Const-initialization (happens before dynamic-initialization) assigns 'false' to 'memstats_instrumentation_global' which is fine because no instrumentation will be done, and 'memstats_events' won't be called.
@@ -399,12 +409,12 @@ void memstats_report(const char * report_name)
                     { std::atexit(print_legend); });
 }
 
-bool memstats_enable_instrumentation()
+bool memstats_enable_thread_instrumentation()
 {
     return std::exchange(memstats_instrumentation_thread, true);
 }
 
-bool memstats_disable_instrumentation()
+bool memstats_disable_thread_instrumentation()
 {
     return std::exchange(memstats_instrumentation_thread, false);
 }
