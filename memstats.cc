@@ -14,6 +14,7 @@
 #include <thread>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #if __has_include(<version>)
 #include <version>
@@ -25,8 +26,6 @@
 
 #if MEMSTAT_HAVE_TBB
 #include <oneapi/tbb/concurrent_vector.h>
-#else
-#include <vector>
 #endif
 
 #if __cpp_constinit >= 201907L
@@ -136,7 +135,7 @@ static thread_local bool memstats_instrumentation_thread = init_memstats_instrum
 // We need to make absolutely sure this is constinit so that 'memstats_instrumentation_global' is const-initialized,
 // otherwise threads will try to syncronize with an uninitialized variable
 #if MEMSTAT_ATOMIC_CONSTEXPR
-MEMSTATS_CONSTINIT static std::atomic<bool> memstats_instrumentation_global = false;
+MEMSTATS_CONSTINIT static std::atomic<bool> memstats_instrumentation_global{false};
 #else
 #error "MemStats needs a conforming C++ standard library where 'std::atomic<bool>' can be const-initialized, i.e. its constructor is 'constexpr'!"
 #endif
@@ -144,7 +143,7 @@ MEMSTATS_CONSTINIT static std::atomic<bool> memstats_instrumentation_global = fa
 
 bool init_memstats_instrumentation_guard()
 {
-    // Note this variable is const-initialized to false. Here we change it to true and syncronize other threads during dynamic initialization 
+    // Note this variable is const-initialized to false. Here we change it to true and syncronize other threads during dynamic initialization
     memstats_instrumentation_global.store(true, std::memory_order_acquire);
     return true;
 }
@@ -254,7 +253,7 @@ void MemStatsInfo::record(void *ptr, std::size_t sz)
     info.stacktrace = info.stacktrace.current(2);
 #endif
 #if !MEMSTAT_HAVE_TBB
-    std::unique_lock lk{memstats_lock};
+    std::unique_lock<std::recursive_mutex> lk{memstats_lock};
 #endif
     memstats_events.emplace_back(std::move(info));
 }
@@ -286,7 +285,7 @@ void print_legend()
 
 void memstats_report(const char * report_name)
 {
-    auto lock = std::unique_lock{memstats_lock};
+    auto lock = std::unique_lock<std::recursive_mutex>{memstats_lock};
     if (memstats_events.size() == 0)
         return;
     std::cout << "\n------------------- MemStats " << report_name << " -------------------\n";
@@ -325,7 +324,7 @@ void memstats_report(const char * report_name)
     // clean up vector
     memstats_events.clear();
 
-    static const std::array metric_prefix{' ', 'k', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y', 'R', 'Q'};
+    static const std::array<char, 11> metric_prefix{' ', 'k', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y', 'R', 'Q'};
     auto bytes_to_string = [&](std::size_t bytes)
     {
         stringstream stream;
@@ -351,8 +350,9 @@ void memstats_report(const char * report_name)
     {
         std::vector<std::size_t, MallocAllocator<std::size_t>> hist(bins, 0);
         std::size_t max_size = 0;
-        for (const auto &[size, count] : stats.size_freq)
+        for (const auto &frec : stats.size_freq)
         {
+            std::size_t size = frec.first, count = frec.second;
             assert(size <= stats.max_size);
             auto bin = (bins * (size - 1)) / (stats.max_size);
             max_size = std::max(hist[bin] += count, max_size);
@@ -374,12 +374,12 @@ void memstats_report(const char * report_name)
               << std::left << std::setw(5) << int_to_string(global_stats.count)
               << ") | Total\n";
 
-    for (const auto &[thread, stats] : thread_stats)
-      if (stats.size) {
-        std::cout << format_histogram(stats) << " | " << std::right
-                  << std::setw(6) << bytes_to_string(stats.size) << '('
-                  << std::left << std::setw(5) << int_to_string(stats.count)
-                  << ") | Thread " << thread << std::endl;
+    for (const auto &pair : thread_stats)
+      if (pair.second.size) {
+        std::cout << format_histogram(pair.second) << " | " << std::right
+                  << std::setw(6) << bytes_to_string(pair.second.size) << '('
+                  << std::left << std::setw(5) << int_to_string(pair.second.count)
+                  << ") | Thread " << pair.first << std::endl;
       }
 
 #if MEMSTAT_HAVE_STACKTRACE
