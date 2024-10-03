@@ -103,16 +103,13 @@ bool init_memstats_instrumentation()
     return false;
 }
 
-bool init_memstats_disable_instrumentation_at_exit()
+bool init_memstats_instrumentation_guard()
 {
-    std::atexit([]
-                { memstats_disable_instrumentation(); });
+    // This is just a run-time magic number that disables correct order initialization,
+    // this way we make sure that the compiler does not const-initialize our variable
+    if (char *ptr = std::getenv("MEMSTATS_DISABLE_INIT_GUARD"); ptr and std::strcmp(ptr, "0xDEADBEEF") == 0)
+        return false;
     return true;
-}
-
-void default_report()
-{
-    memstats_report("default");
 }
 
 bool init_memstats_report_at_exit()
@@ -123,7 +120,7 @@ bool init_memstats_report_at_exit()
         if (std::strcmp(ptr, "true") == 0 or std::strcmp(ptr, "1") == 0)
         {
             std::call_once(report_flag, []()
-                           { std::atexit(default_report); });
+                           { std::atexit( []{ memstats_report("default"); }); });
             return true;
         }
         if (std::strcmp(ptr, "false") == 0 or std::strcmp(ptr, "0") == 0)
@@ -131,7 +128,7 @@ bool init_memstats_report_at_exit()
         std::cerr << "Option 'MEMSTATS_REPORT_AT_EXIT=" << ptr << "' not known. Fallback on default 'true'\n";
     }
     std::call_once(report_flag, []()
-                   { std::atexit(default_report); });
+                   { std::atexit( []{ memstats_report("default"); }); });
     return true;
 }
 
@@ -161,31 +158,32 @@ MEMSTATS_CONSTINIT
 static std::vector<MemStatsInfo, MallocAllocator<MemStatsInfo>> memstats_events = {};
 #endif
 
-// Zero-initialization (happens before dynamic-initialization) assigns 'false' to 'memstats_instrumentation' which is fine because no instrumentation will be done, and 'memstats_events' won't be called.
-// By defining 'memstats_instrumentation' after 'memstats_events' we guarantee that they are initialized on that order during dynamic-initialization.
-// meaning that we cannot register memory events before 'memstats_events' is initialized.
+// Zero- and dynamic-initialization of a thread-local variable does not necessarily happen on any order related to the global ones
 static thread_local bool memstats_instrumentation = init_memstats_instrumentation();
+
+// Zero-initialization (happens before dynamic-initialization) assigns 'false' to 'memstats_instrumentation_guard' which is fine because no instrumentation will be done, and 'memstats_events' won't be called.
+// By defining 'memstats_instrumentation_guard' after 'memstats_events' we guarantee that they are initialized on that order during dynamic-initialization.
+// meaning that we cannot register memory events before 'memstats_events' is initialized.
+// Note that we do not want this variable to be const-initialized to 'true' before dynamic-initialization, so we make sure this gets
+// dynamic-initialized in the correct order by delaying its initialization by a non-constexpr function.
+static bool memstats_instrumentation_guard = init_memstats_instrumentation_guard();
 
 // Destruction order fiasco also hits here. If a variable destroyed during dynamic-initialization-destruction (reverse order),
 // calls on 'delete' or direct accesses to 'memstats_events' may trigger an access to an already destroyed 'memstats_events'.
 // Therefore, we make sure to make a 'report' before 'memstats_events' is destroyed.
 static const bool memstats_report_at_exit = init_memstats_report_at_exit();
-// ...and make sure to that 'delete' has a disabled instrumentation before 'memstats_events' is destroyed.
-static const bool memstats_disable_instrumentation_at_exit = init_memstats_disable_instrumentation_at_exit();
 
 /** Overview of initialization/destruction order:
- * memstats_instrumentation = false;                                                            // zero-initialization
+ * memstats_instrumentation_guard = false;                                                      // zero-initialization
  * memstats_lock = {};                                                                          // dynamic-initialization
  * memstats_events = {};                                                                        // dynamic-initialization
- * memstats_instrumentation = init_memstats_instrumentation();                                  // dynamic-initialization
+ * memstats_instrumentation_guard = init_memstats_instrumentation_guard();                      // dynamic-initialization
  * memstats_report_at_exit = init_memstats_report_at_exit();                                    // dynamic-initialization
- * memstats_disable_instrumentation_at_exit = init_memstats_disable_instrumentation_at_exit();  // dynamic-initialization
  * main();
- * std::atexit(memstats_disable_instrumentation); -> memstats_instrumentation = false           // dynamic-initialization-destruction
+ * memstats_instrumentation_guard.~bool();                                                      // dynamic-initialization-destruction
  * std::atexit(default_report); -> read memstats_events                                         // dynamic-initialization-destruction
  * memstats_events.~vector<MemStatsInfo, MallocAllocator<MemStatsInfo>>();                      // dynamic-initialization-destruction
  * memstats_lock.~mutex();                                                                      // dynamic-initialization-destruction
- * memstats_instrumentation.~bool();                                                            // zero-initialization-destruction
  */
 
 // bin representation of percentage from 0% to 100%
@@ -269,7 +267,7 @@ void print_legend()
     string buffer;
     double per_width = 100. / str_precentage.second;
     for (std::size_t i = 0; i != str_precentage.second; ++i)
-      std::cout << "• \'" << str_precentage.first+i << "\' -> [" << std::fixed
+      std::cout << "• \'" << str_precentage.first[i] << "\' -> [" << std::fixed
                 << std::setw(4) << std::setprecision(1) << i * per_width
                 << "%, " << std::setw(5) << (i + 1) * per_width << '%'
                 << (i + 1 == str_precentage.second ? ']' : ')') << std::endl;
@@ -360,14 +358,14 @@ void memstats_report(const char * report_name)
         return stream.str();
     };
 
-    std::cout << " | " << format_histogram(global_stats) << " | " << std::right
+    std::cout << format_histogram(global_stats) << " | " << std::right
               << std::setw(6) << bytes_to_string(global_stats.size) << '('
               << std::left << std::setw(5) << int_to_string(global_stats.count)
               << ") | Total\n";
 
     for (const auto &[thread, stats] : thread_stats)
       if (stats.size) {
-        std::cout << " | " << format_histogram(stats) << " | " << std::right
+        std::cout << format_histogram(stats) << " | " << std::right
                   << std::setw(6) << bytes_to_string(stats.size) << '('
                   << std::left << std::setw(5) << int_to_string(stats.count)
                   << ") | Thread " << thread << std::endl;
@@ -377,7 +375,7 @@ void memstats_report(const char * report_name)
     for (auto [stacktrace_entry, stats] : stacktrace_entry_stats)
     {
       if (stats.size) {
-        std::cout << " | " << format_histogram(stats) << " | " << std::right
+        std::cout << format_histogram(stats) << " | " << std::right
                   << std::setw(6) << bytes_to_string(stats.size) << '('
                   << std::left << std::setw(5)
                   << int_to_string(stats.count) << ") | ";
@@ -401,6 +399,11 @@ bool memstats_disable_instrumentation()
     return std::exchange(memstats_instrumentation, false);
 }
 
+bool memstats_do_instrument()
+{
+    return memstats_instrumentation_guard and memstats_instrumentation;
+}
+
 // instrumentation of new
 void *operator new(std::size_t sz)
 {
@@ -415,7 +418,7 @@ void *operator new(std::size_t sz)
         else
             throw std::bad_alloc{};
     }
-    if (memstats_instrumentation)
+    if (memstats_do_instrument())
         MemStatsInfo::record(ptr, sz);
     return ptr;
 }
@@ -436,7 +439,7 @@ void *operator new(std::size_t sz, std::nothrow_t) noexcept
 // instrumentation of delete
 void operator delete(void *ptr) noexcept
 {
-    if (memstats_instrumentation)
+    if (memstats_do_instrument())
         MemStatsInfo::record(ptr);
     std::free(ptr);
 }
