@@ -52,7 +52,7 @@ This instrumentation helps you find out whether your program does such calls wit
 
 void my_fast_function() {
   memstats_enable_instrumentation();
-  /* hot path, supposedly with now new allocations */
+  /* hot path, supposedly with no new allocations */
   memstats_disable_instrumentation();
 }
 ```
