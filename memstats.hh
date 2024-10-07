@@ -10,6 +10,7 @@ extern "C" {
  * Do not call when other threads may call 'new' and 'delete', i.e., make
  * sure to syncronize all threads before and after calling report.
  * Do not call during static- or dynamic-initialization phase.
+ * Reporting from a detached thread is undefined behavior.
  */
 void memstats_report(const char * report_name = "");
 
