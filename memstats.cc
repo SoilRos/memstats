@@ -18,7 +18,9 @@
 #include <vector>
 
 #if __has_include(<version>)
+
 #include <version>
+
 #endif
 
 #if MEMSTAT_HAVE_STACKTRACE
@@ -38,19 +40,20 @@
 #include "memstats.hh"
 
 // all allocations within this library need to use malloc/free instad of new/delete
-template <class T>
-class MallocAllocator
-{
+template<class T>
+class MallocAllocator {
 public:
     using value_type = T;
 
     constexpr MallocAllocator() noexcept = default;
-    template <class U>
-    constexpr MallocAllocator(const MallocAllocator<U> &) noexcept {}
+
+    template<class U>
+    constexpr MallocAllocator(const MallocAllocator<U> &) noexcept {
+    }
+
     ~MallocAllocator() noexcept = default;
 
-    T *allocate(std::size_t n)
-    {
+    T *allocate(std::size_t n) {
         if (n > this->max_size())
             throw std::bad_alloc();
 
@@ -60,26 +63,43 @@ public:
         return ret;
     }
 
-    void deallocate(T *p, std::size_t)
-    {
+    void deallocate(T *p, std::size_t) {
         std::free(p);
     }
 
-    std::size_t max_size() const noexcept
-    {
+    std::size_t max_size() const noexcept {
         return std::size_t(-1) / sizeof(T);
     }
 
-    friend bool operator==(const MallocAllocator&, const MallocAllocator&){
+    friend bool operator==(const MallocAllocator &, const MallocAllocator &) {
         return true;
     }
-    friend bool operator!=(const MallocAllocator&, const MallocAllocator&){
+
+    friend bool operator!=(const MallocAllocator &, const MallocAllocator &) {
         return false;
     }
 };
 
-struct MemStatsInfo
-{
+#if MEMSTATS_USE_MEMORY_TRACER
+void __attribute__((optimize("O0"))) disable_memory_tracer(void) {
+}
+
+void __attribute__((optimize("O0"))) enable_memory_tracer(void) {
+}
+
+class MemoryTracerGuard {
+public:
+    MemoryTracerGuard() {
+        disable_memory_tracer();
+    }
+
+    ~MemoryTracerGuard() {
+        enable_memory_tracer();
+    }
+};
+#endif
+
+struct MemStatsInfo {
     const void *ptr = nullptr;
     std::size_t size = 0;
     std::chrono::high_resolution_clock::time_point time = {};
@@ -91,15 +111,18 @@ struct MemStatsInfo
     static void record(void *ptr, std::size_t sz = 0);
 };
 
-bool init_memstats_instrumentation_thread()
-{
-    if (char *ptr = std::getenv("MEMSTATS_THREAD_INSTRUMENTATION_INIT"))
-    {
+bool init_memstats_instrumentation_thread() {
+#if MEMSTATS_USE_MEMORY_TRACER
+    const MemoryTracerGuard guard;
+#endif
+
+    if (char *ptr = std::getenv("MEMSTATS_THREAD_INSTRUMENTATION_INIT")) {
         if (std::strcmp(ptr, "true") == 0 or std::strcmp(ptr, "1") == 0)
             return true;
         if (std::strcmp(ptr, "false") == 0 or std::strcmp(ptr, "0") == 0)
             return false;
-        std::cerr << "Option 'MEMSTATS_THREAD_INSTRUMENTATION_INIT=" << ptr << "' not known. Fallback on default 'false'\n";
+        std::cerr << "Option 'MEMSTATS_THREAD_INSTRUMENTATION_INIT=" << ptr
+                << "' not known. Fallback on default 'false'\n";
     }
     return false;
 }
@@ -127,18 +150,24 @@ static std::recursive_mutex memstats_lock = {};
 #if __cpp_lib_constexpr_vector >= 201907L
 MEMSTATS_CONSTINIT
 #endif
-static std::vector<MemStatsInfo, MallocAllocator<MemStatsInfo>> memstats_events = {};
+static std::vector<MemStatsInfo, MallocAllocator<MemStatsInfo> > memstats_events = {};
 #endif
+std::mutex memstats_events_mutex;
+
 
 // Zero- and dynamic-initialization of a thread-local variable does not necessarily happen on any order related to the global ones
 static thread_local bool memstats_instrumentation_thread = init_memstats_instrumentation_thread();
 
 // guard thread-local variable to instrument further delets at exit
-bool init_memstats_instrumentation_thread_guard()
-{
-    std::atexit([]{ memstats_instrumentation_thread = false; });
+bool init_memstats_instrumentation_thread_guard() {
+#if MEMSTATS_USE_MEMORY_TRACER
+    const MemoryTracerGuard guard;
+#endif
+
+    std::atexit([] { memstats_instrumentation_thread = false; });
     return true;
 }
+
 const static thread_local bool memstats_instrumentation_thread_guard = init_memstats_instrumentation_thread_guard();
 
 // We need to make absolutely sure this is constinit so that 'memstats_instrumentation_global' is const-initialized,
@@ -149,18 +178,21 @@ MEMSTATS_CONSTINIT static std::atomic<bool> memstats_instrumentation_global{fals
 #error "MemStats needs a conforming C++ standard library where 'std::atomic<bool>' can be const-initialized, i.e. its constructor is 'constexpr'!"
 #endif
 
-bool init_memstats_instrumentation_guard()
-{
+bool init_memstats_instrumentation_guard() {
+#if MEMSTATS_USE_MEMORY_TRACER
+    const MemoryTracerGuard guard;
+#endif
+
     bool instrument = false;
     // Note this variable is const-initialized to false. Here we change it to true and syncronize other threads during dynamic initialization
-    if (char *ptr = std::getenv("MEMSTATS_ENABLE_INSTRUMENTATION"))
-    {
+    if (char *ptr = std::getenv("MEMSTATS_ENABLE_INSTRUMENTATION")) {
         if (std::strcmp(ptr, "true") == 0 or std::strcmp(ptr, "1") == 0)
             instrument = true;
         else if (std::strcmp(ptr, "false") == 0 or std::strcmp(ptr, "0") == 0)
             instrument = false;
         else
-            std::cerr << "Option 'MEMSTATS_ENABLE_INSTRUMENTATION=" << ptr << "' not known. Fallback on default 'false'\n";
+            std::cerr << "Option 'MEMSTATS_ENABLE_INSTRUMENTATION=" << ptr
+                    << "' not known. Fallback on default 'false'\n";
     }
     memstats_instrumentation_global.store(instrument, std::memory_order_release);
     return instrument;
@@ -173,26 +205,30 @@ bool init_memstats_instrumentation_guard()
 // dynamic-initialized in the correct order by delaying its initialization by a non-constexpr function.
 static bool memstats_instrumentation_guard = init_memstats_instrumentation_guard();
 
-bool init_memstats_at_exit()
-{
+bool init_memstats_at_exit() {
+#if MEMSTATS_USE_MEMORY_TRACER
+    const MemoryTracerGuard guard;
+#endif
+
     static std::once_flag report_flag;
     std::call_once(report_flag,
-        []{ std::atexit([]{
-            memstats_instrumentation_global.store(false, std::memory_order_release);
-            bool do_report_at_exit = true;
-            if (char *ptr = std::getenv("MEMSTATS_REPORT_AT_EXIT"))
-            {
-                if (std::strcmp(ptr, "true") == 0 or std::strcmp(ptr, "1") == 0)
-                    do_report_at_exit =  true;
-                else if (std::strcmp(ptr, "false") == 0 or std::strcmp(ptr, "0") == 0)
-                    do_report_at_exit =  false;
-                else
-                    std::cerr << "Option 'MEMSTATS_REPORT_AT_EXIT=" << ptr << "' not known. Fallback on default 'true'\n";
-            }
-            if (do_report_at_exit)
-                memstats_report("default");
-        });
-    });
+                   [] {
+                       std::atexit([] {
+                           memstats_instrumentation_global.store(false, std::memory_order_release);
+                           bool do_report_at_exit = true;
+                           if (char *ptr = std::getenv("MEMSTATS_REPORT_AT_EXIT")) {
+                               if (std::strcmp(ptr, "true") == 0 or std::strcmp(ptr, "1") == 0)
+                                   do_report_at_exit = true;
+                               else if (std::strcmp(ptr, "false") == 0 or std::strcmp(ptr, "0") == 0)
+                                   do_report_at_exit = false;
+                               else
+                                   std::cerr << "Option 'MEMSTATS_REPORT_AT_EXIT=" << ptr
+                                           << "' not known. Fallback on default 'true'\n";
+                           }
+                           if (do_report_at_exit)
+                               memstats_report("default");
+                       });
+                   });
     return true;
 }
 
@@ -215,23 +251,29 @@ static const bool memstats_at_exit_guard = init_memstats_at_exit();
  */
 
 // bin representation of percentage from 0% to 100%
-static const std::array<const char*,4> memstats_str_precentage_punctuation{" ", ".", ":", "!"};
-static const std::array<const char*,4> memstats_str_precentage_circle{" ", ".", "o", "O"};
-static const std::array<const char*,5> memstats_str_precentage_shadow{" ", "░", "▒", "▓", "█"};
-static const std::array<const char*,5> memstats_str_precentage_wire{" ", "-", "~", "=", "#"};
-static const std::array<const char*,9> memstats_str_precentage_box{" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"};
-static const std::array<const char*,10> memstats_str_precentage_number{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
+static const std::array<const char *, 4> memstats_str_precentage_punctuation{" ", ".", ":", "!"};
+static const std::array<const char *, 4> memstats_str_precentage_circle{" ", ".", "o", "O"};
+static const std::array<const char *, 5> memstats_str_precentage_shadow{" ", "░", "▒", "▓", "█"};
+static const std::array<const char *, 5> memstats_str_precentage_wire{" ", "-", "~", "=", "#"};
+static const std::array<const char *, 9> memstats_str_precentage_box{" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"};
+static const std::array<const char *, 10> memstats_str_precentage_number{
+    "0", "1", "2", "3", "4", "5", "6", "7", "8",
+    "9"
+};
 
-std::pair<char const * const *, std::size_t> memstats_str_hist_representation()
-{
-    if (const char *ptr = std::getenv("MEMSTATS_HISTOGRAM_REPRESENTATION"))
-    {
+std::pair<char const *const *, std::size_t> memstats_str_hist_representation() {
+#if MEMSTATS_USE_MEMORY_TRACER
+    const MemoryTracerGuard guard;
+#endif
+
+    if (const char *ptr = std::getenv("MEMSTATS_HISTOGRAM_REPRESENTATION")) {
         if (std::strcmp(ptr, "box") == 0)
             return std::make_pair(memstats_str_precentage_box.data(), memstats_str_precentage_box.size());
         if (std::strcmp(ptr, "number") == 0)
             return std::make_pair(memstats_str_precentage_number.data(), memstats_str_precentage_number.size());
         if (std::strcmp(ptr, "punctuation") == 0)
-            return std::make_pair(memstats_str_precentage_punctuation.data(), memstats_str_precentage_punctuation.size());
+            return std::make_pair(memstats_str_precentage_punctuation.data(),
+                                  memstats_str_precentage_punctuation.size());
         if (std::strcmp(ptr, "shadow") == 0)
             return std::make_pair(memstats_str_precentage_shadow.data(), memstats_str_precentage_shadow.size());
         if (std::strcmp(ptr, "wire") == 0)
@@ -243,24 +285,26 @@ std::pair<char const * const *, std::size_t> memstats_str_hist_representation()
     return std::make_pair(memstats_str_precentage_box.data(), memstats_str_precentage_box.size());
 }
 
-unsigned short memstats_bins()
-{
-    if (const char *ptr = std::getenv("MEMSTATS_BINS"))
-    {
-        try
-        {
+unsigned short memstats_bins() {
+#if MEMSTATS_USE_MEMORY_TRACER
+    const MemoryTracerGuard guard;
+#endif
+
+    if (const char *ptr = std::getenv("MEMSTATS_BINS")) {
+        try {
             return std::stoi(ptr);
-        }
-        catch (...)
-        {
+        } catch (...) {
             std::cerr << "Option 'MEMSTATS_BINS=" << ptr << "' not known. Fallback on default '15'\n";
         }
     }
     return 15;
 }
 
-void MemStatsInfo::record(void *ptr, std::size_t sz)
-{
+void MemStatsInfo::record(void *ptr, std::size_t sz) {
+#if MEMSTATS_USE_MEMORY_TRACER
+    const MemoryTracerGuard guard;
+#endif
+
     auto time = std::chrono::high_resolution_clock::now();
     MemStatsInfo info;
     info.ptr = ptr;
@@ -276,13 +320,17 @@ void MemStatsInfo::record(void *ptr, std::size_t sz)
     memstats_events.emplace_back(std::move(info));
 }
 
-template <class Key, class T>
-using unordered_map = std::unordered_map<Key, T, std::hash<Key>, std::equal_to<Key>, MallocAllocator<std::pair<const Key, T>>>;
-using string = std::basic_string<char, std::char_traits<char>, MallocAllocator<char>>;
-using stringstream = std::basic_stringstream<char, std::char_traits<char>, MallocAllocator<char>>;
+template<class Key, class T>
+using unordered_map = std::unordered_map<Key, T, std::hash<Key>, std::equal_to<Key>, MallocAllocator<std::pair<const Key
+    , T> > >;
+using string = std::basic_string<char, std::char_traits<char>, MallocAllocator<char> >;
+using stringstream = std::basic_stringstream<char, std::char_traits<char>, MallocAllocator<char> >;
 
-void print_legend()
-{
+void print_legend() {
+#if MEMSTATS_USE_MEMORY_TRACER
+    const MemoryTracerGuard guard;
+#endif
+
     std::cout << "\nMemStats Legend:\n\n";
     std::cout << "  [{hist}]{max} | {accum}({count}) | {pos}\n\n";
     std::cout << "• hist:   Distribution of number of 'new' allocations for a given number of bytes\n";
@@ -295,33 +343,66 @@ void print_legend()
     string buffer;
     double per_width = 100. / str_precentage.second;
     for (std::size_t i = 0; i != str_precentage.second; ++i)
-      std::cout << "• \'" << str_precentage.first[i] << "\' -> [" << std::fixed
+        std::cout << "• \'" << str_precentage.first[i] << "\' -> [" << std::fixed
                 << std::setw(4) << std::setprecision(1) << i * per_width
                 << "%, " << std::setw(5) << (i + 1) * per_width << '%'
                 << (i + 1 == str_precentage.second ? ']' : ')') << std::endl;
 }
 
-void memstats_report(const char * report_name)
-{
+void report_memory_leaks() {
+    std::cout << "\nMemory leaks:\n";
+
+    // Report allocations without deallocations
+    for (int i = 0; i < memstats_events.size(); ++i) {
+        // Skip deallocations (only allocations can have size > 0)
+        if (memstats_events[i].size == 0) continue;
+        bool freed = false;
+        for (int j = i + 1; j < memstats_events.size(); ++j) {
+            if (memstats_events[i].ptr == memstats_events[j].ptr && memstats_events[j].size == 0 &&
+                memstats_events[i].thread == memstats_events[j].thread) {
+                freed = true;
+            }
+        }
+
+        if (!freed) {
+            std::cout << "Pointer " << memstats_events[i].ptr << " was never freed in Thread "
+                    << memstats_events[i].thread << "." << std::endl;
+#if MEMSTAT_HAVE_STACKTRACE
+            std::cout << "Current stacktrace:\n" << memstats_events[i].stacktrace << std::endl;
+#endif
+        }
+    }
+}
+
+void memstats_report(const char *report_name) {
+#if MEMSTATS_USE_MEMORY_TRACER
+    const MemoryTracerGuard guard;
+#endif
+
     auto lock = std::unique_lock<std::recursive_mutex>{memstats_lock};
     if (memstats_events.size() == 0)
         return;
+
     std::cout << "\n------------------- MemStats " << report_name << " -------------------\n";
-    struct Stats
-    {
+    struct Stats {
         std::size_t count{0}, size{0}, max_size{0};
         unordered_map<std::size_t, std::size_t> size_freq;
     };
     Stats global_stats;
     unordered_map<std::thread::id, Stats> thread_stats;
+    unordered_map<const void *, unordered_map<std::thread::id, std::pair<int, bool> > > ptr_collec;
+    struct PtrStats {
+        int times_freed;
+        const void *ptr;
+    };
+    std::vector<PtrStats> ptr_stats;
 #if MEMSTAT_HAVE_STACKTRACE
     unordered_map<std::basic_stacktrace<MallocAllocator<std::stacktrace_entry>>, Stats> stacktrace_stats;
     unordered_map<std::stacktrace_entry, Stats> stacktrace_entry_stats;
 #endif
-    for (const MemStatsInfo &info : memstats_events)
-    {
-        auto register_stats = [&](Stats &stats)
-        {
+
+    for (const MemStatsInfo &info: memstats_events) {
+        auto register_stats = [&](Stats &stats) {
             if (info.size)
                 ++stats.count;
             stats.size += info.size;
@@ -333,18 +414,26 @@ void memstats_report(const char * report_name)
         register_stats(global_stats);
         register_stats(thread_stats[info.thread]);
 
+        if (ptr_collec[info.ptr][info.thread].second && info.size > 0) {
+            PtrStats stats = {ptr_collec[info.ptr][info.thread].first, info.ptr};
+            ptr_stats.push_back(stats);
+            ptr_collec[info.ptr][info.thread].first = 0;
+            ptr_collec[info.ptr][info.thread].second = false;
+        } else if (info.size == 0) {
+            ++ptr_collec[info.ptr][info.thread].first;
+            ptr_collec[info.ptr][info.thread].second = true;
+        }
+
+
 #if MEMSTAT_HAVE_STACKTRACE
         register_stats(stacktrace_stats[info.stacktrace]);
         for (auto entry : info.stacktrace)
             register_stats(stacktrace_entry_stats[entry]);
 #endif
     }
-    // clean up vector
-    memstats_events.clear();
 
     static const std::array<char, 11> metric_prefix{' ', 'k', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y', 'R', 'Q'};
-    auto bytes_to_string = [&](std::size_t bytes)
-    {
+    auto bytes_to_string = [&](std::size_t bytes) {
         stringstream stream;
         short base = std::floor(std::log2(bytes) / 10);
         if (base > metric_prefix.size())
@@ -353,8 +442,7 @@ void memstats_report(const char * report_name)
         return stream.str();
     };
 
-    auto int_to_string = [&](std::size_t val)
-    {
+    auto int_to_string = [&](std::size_t val) {
         stringstream stream;
         short base = std::floor(std::log10(val) / 3);
         if (base > metric_prefix.size())
@@ -364,12 +452,10 @@ void memstats_report(const char * report_name)
     };
     const auto str_precentage = memstats_str_hist_representation();
     const auto bins = memstats_bins();
-    auto format_histogram = [&](const Stats &stats)
-    {
-        std::vector<std::size_t, MallocAllocator<std::size_t>> hist(bins, 0);
+    auto format_histogram = [&](const Stats &stats) {
+        std::vector<std::size_t, MallocAllocator<std::size_t> > hist(bins, 0);
         std::size_t max_size = 0;
-        for (const auto &frec : stats.size_freq)
-        {
+        for (const auto &frec: stats.size_freq) {
             std::size_t size = frec.first, count = frec.second;
             assert(size <= stats.max_size);
             auto bin = (bins * (size - 1)) / (stats.max_size);
@@ -377,28 +463,28 @@ void memstats_report(const char * report_name)
         }
         stringstream stream;
         stream << "[";
-        for (auto size : hist) {
-          const std::size_t bin_entry =
-            (size * str_precentage.second) / max_size;
-          // maximum value (size==max_size) will be out of range so we need to guard agains that
-          stream << str_precentage.first[std::min(bin_entry, str_precentage.second - 1)];
+        for (auto size: hist) {
+            const std::size_t bin_entry =
+                    (size * str_precentage.second) / max_size;
+            // maximum value (size==max_size) will be out of range so we need to guard agains that
+            stream << str_precentage.first[std::min(bin_entry, str_precentage.second - 1)];
         }
-        stream << "]" << std::left<< std::setw(6) << bytes_to_string(stats.max_size);
+        stream << "]" << std::left << std::setw(6) << bytes_to_string(stats.max_size);
         return stream.str();
     };
 
     std::cout << format_histogram(global_stats) << " | " << std::right
-              << std::setw(6) << bytes_to_string(global_stats.size) << '('
-              << std::left << std::setw(5) << int_to_string(global_stats.count)
-              << ") | Total\n";
+            << std::setw(6) << bytes_to_string(global_stats.size) << '('
+            << std::left << std::setw(5) << int_to_string(global_stats.count)
+            << ") | Total\n";
 
-    for (const auto &pair : thread_stats)
-      if (pair.second.size) {
-        std::cout << format_histogram(pair.second) << " | " << std::right
-                  << std::setw(6) << bytes_to_string(pair.second.size) << '('
-                  << std::left << std::setw(5) << int_to_string(pair.second.count)
-                  << ") | Thread " << pair.first << std::endl;
-      }
+    for (const auto &pair: thread_stats)
+        if (pair.second.size) {
+            std::cout << format_histogram(pair.second) << " | " << std::right
+                    << std::setw(6) << bytes_to_string(pair.second.size) << '('
+                    << std::left << std::setw(5) << int_to_string(pair.second.count)
+                    << ") | Thread " << pair.first << std::endl;
+        }
 
 #if MEMSTAT_HAVE_STACKTRACE
     for (auto [stacktrace_entry, stats] : stacktrace_entry_stats)
@@ -412,43 +498,73 @@ void memstats_report(const char * report_name)
       }
     }
 #endif
+
+    report_memory_leaks();
+
+    std::cout << "\nDouble freed pointers:\n";
+
+    // Report double deallocations
+    for (const auto &entry: ptr_stats) {
+        if (entry.times_freed > 1)
+            std::cout << "Pointer " << entry.ptr << " was freed " << entry.times_freed << " times." << std::endl;
+    }
+
+    // clean up vector
+    memstats_events.clear();
+
     // avoid printing legend several times, so call once at exit
     static std::once_flag legend_flag;
-    std::call_once(legend_flag, []()
-                    { std::atexit(print_legend); });
+    std::call_once(legend_flag, []() { std::atexit(print_legend); });
 }
 
 template<class T, class U = T>
-T exchange(T& obj, U&& new_value)
-{
+T exchange(T &obj, U &&new_value) {
+#if MEMSTATS_USE_MEMORY_TRACER
+    const MemoryTracerGuard guard;
+#endif
+
     T old_value = std::move(obj);
     obj = std::forward<U>(new_value);
     return old_value;
 }
 
-bool memstats_enable_thread_instrumentation()
-{
+bool memstats_enable_thread_instrumentation() {
+#if MEMSTATS_USE_MEMORY_TRACER
+    const MemoryTracerGuard guard;
+#endif
+
     return exchange(memstats_instrumentation_thread, true);
 }
 
-bool memstats_disable_thread_instrumentation()
-{
+bool memstats_disable_thread_instrumentation() {
+#if MEMSTATS_USE_MEMORY_TRACER
+    const MemoryTracerGuard guard;
+#endif
+
     return exchange(memstats_instrumentation_thread, false);
 }
 
-bool memstats_do_instrument()
-{
+bool memstats_do_instrument() {
+#if MEMSTATS_USE_MEMORY_TRACER
+    const MemoryTracerGuard guard;
+#endif
+
     return memstats_instrumentation_thread and memstats_instrumentation_global.load(std::memory_order_acquire);
 }
 
 // instrumentation of new
-void *operator new(std::size_t sz)
-{
+void *operator new(std::size_t sz) {
+#if MEMSTATS_USE_MEMORY_TRACER
+    const MemoryTracerGuard guard;
+#endif
+
+    // prevent multiple thread from allocating memory at the same time s.t. events are in order
+    //std::lock_guard<std::mutex> lock(memstats_events_mutex);
+
     if (sz == 0)
         sz = 1;
     void *ptr;
-    while ((ptr = std::malloc(sz)) == nullptr)
-    {
+    while ((ptr = std::malloc(sz)) == nullptr) {
         std::new_handler handler = std::get_new_handler();
         if (handler)
             handler();
@@ -457,38 +573,45 @@ void *operator new(std::size_t sz)
     }
     if (memstats_do_instrument())
         MemStatsInfo::record(ptr, sz);
+
     return ptr;
 }
 
 // instrumentation of new
-void *operator new(std::size_t sz, std::nothrow_t) noexcept
-{
-    try
-    {
+void *operator new(std::size_t sz, std::nothrow_t) noexcept {
+#if MEMSTATS_USE_MEMORY_TRACER
+    const MemoryTracerGuard guard;
+#endif
+
+    try {
         return ::operator new(sz);
-    }
-    catch (...)
-    {
+    } catch (...) {
     }
     return nullptr;
 }
 
 // instrumentation of delete
-void operator delete(void *ptr) noexcept
-{
+void operator delete(void *ptr) noexcept {
+#if MEMSTATS_USE_MEMORY_TRACER
+    const MemoryTracerGuard guard;
+#endif
+
+    // prevent multiple thread from deallocating memory at the same time s.t. events are in order
+    //std::lock_guard<std::mutex> lock(memstats_events_mutex);
+
     if (memstats_do_instrument())
         MemStatsInfo::record(ptr);
     std::free(ptr);
 }
 
 // instrumentation of delete
-void operator delete(void *ptr, std::nothrow_t) noexcept
-{
-    try
-    {
+void operator delete(void *ptr, std::nothrow_t) noexcept {
+#if MEMSTATS_USE_MEMORY_TRACER
+    const MemoryTracerGuard guard;
+#endif
+
+    try {
         return ::operator delete(ptr);
-    }
-    catch (...)
-    {
+    } catch (...) {
     }
 }

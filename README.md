@@ -9,6 +9,7 @@ _**Note**: This library only instruments the C++ operators `new` and `delete`, m
 * Thread Safe
 * Low overhead when disabled
 * Portable: Compatible with GCC, Clang, and MVSC with C++11 support
+* Memory tracer using Intel PIN for x86 architectures to detect dynamic allocation of arrays containing arrays and memory that was allocated but never used
 
 ## Environmental options
 
@@ -27,6 +28,13 @@ _**Note**: This library only instruments the C++ operators `new` and `delete`, m
 | `memstats_report(name)`                                 | Reports statistics on `new` calls since last report. Not thread-safe. |
 | `memstats_[enable\|disable]_thread_instrumentation()`   | Enables/disables instrumentation on the calling thread. Thread-safe.  |
 
+To enable or disable the memory tracer when using it, one just needs to define the following dummy funcions and call them to enable/disable:
+
+```c++
+void __attribute__((optimize("O0"))) disable_memory_tracer(void) {}
+
+void __attribute__((optimize("O0"))) enable_memory_tracer(void) {}
+```
 
 ## CMake
 
@@ -48,6 +56,12 @@ add_executable(example_01 example_01.cc)
 # consume memstats target
 target_link_libraries(example_01 PUBLIC MemStats::MemStats)
 ```
+
+When calling `cmake ...` using the options `-DUSE_MEMORY_TRACER=ON -DPINTOOL_PATH=/path/to/intelpin`, the memory tracer will be built.
+
+To execute a program with the memory tracer, one can use the following command:
+
+/path/to/intelpin/pin -t /path/to/memorytracer/memorytracer.so -- /path/to/program
 
 ## Motivation
 

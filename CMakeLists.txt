@@ -8,6 +8,19 @@ add_library(memstats)
 target_sources(memstats PRIVATE memstats.cc)
 target_link_libraries(memstats PRIVATE $<TARGET_NAME_IF_EXISTS:TBB::tbb> $<TARGET_NAME_IF_EXISTS:Threads::Threads>)
 
+option(USE_MEMORY_TRACER "Enable memory tracing" OFF)
+
+if(USE_MEMORY_TRACER)
+    target_compile_definitions(memstats PRIVATE MEMSTATS_USE_MEMORY_TRACER)
+
+    set(PINTOOL_PATH "" CACHE PATH "")
+
+    if (NOT PINTOOL_PATH)
+        message(FATAL_ERROR "For using memstats with memory tracing, the path to the directory of pintool is required.")
+    endif()
+    execute_process(COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/memory_tracer/compile.sh ${PINTOOL_PATH})
+endif()
+
 include(GNUInstallDirs)
 install(FILES memstats.hh
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
@@ -88,7 +101,6 @@ export(EXPORT memstats-targets
        NAMESPACE MemStats::
 )
 
-
 if(memstats_IS_TOP_LEVEL)
     add_executable(example_01 example_01.cc)
     target_link_libraries(example_01 PUBLIC MemStats::MemStats)
@@ -101,4 +113,13 @@ if(memstats_IS_TOP_LEVEL)
         target_link_libraries(example_03 PUBLIC MemStats::MemStats)
         target_compile_features(example_03 PUBLIC cxx_std_11)
     endif()
+
+    add_executable(example_04 example_04.cc)
+    target_link_libraries(example_04 PUBLIC MemStats::MemStats)
+
+    add_executable(example_05 example_05.cc)
+    target_link_libraries(example_05 PUBLIC MemStats::MemStats)
+
+    add_executable(example_06 example_06.cc)
+    target_link_libraries(example_05 PUBLIC MemStats::MemStats)
 endif()
